@@ -90,7 +90,7 @@ class ShareService:
 
     @staticmethod
     def file_path(token: str, name: str) -> Optional[str]:
-        if not _valid_token(token) or name not in ('graph.json', 'illustration.png', 'preview.jpg'):
+        if not _valid_token(token) or name not in ('graph.json', 'illustration.png', 'preview.jpg', 'full.jpg'):
             return None
         path = os.path.join(_token_dir(token), name)
         return path if os.path.exists(path) else None
@@ -160,6 +160,7 @@ class ShareService:
                 src = IllustrationService.image_path(report_id)
                 shutil.copyfile(src, os.path.join(folder, 'illustration.png'))
                 ShareService._make_preview(src, os.path.join(folder, 'preview.jpg'))
+                ShareService._make_full(src, os.path.join(folder, 'full.jpg'))
                 has_image = True
                 caption = ill_meta.get('caption', '')
 
@@ -230,20 +231,44 @@ class ShareService:
 
     @staticmethod
     def _make_preview(src: str, dst: str) -> None:
+        """Tarjeta de enlace 1200x628 (WhatsApp/Open Graph) con la infografía COMPLETA centrada sobre un fondo hecho con
+        la misma imagen difuminada. Antes se recortaba el centro y la infografía perdía título y recomendación."""
+        try:
+            from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+            W, H = 1200, 628
+            with Image.open(src) as im:
+                im = im.convert('RGB')
+                fondo = ImageOps.fit(im, (W, H), Image.LANCZOS).filter(ImageFilter.GaussianBlur(28))
+                fondo = ImageEnhance.Brightness(fondo).enhance(0.55)
+                frente = im.copy()
+                frente.thumbnail((W - 48, H - 32), Image.LANCZOS)
+                fondo.paste(frente, ((W - frente.width) // 2, (H - frente.height) // 2))
+                fondo.save(dst, 'JPEG', quality=82, optimize=True, progressive=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"No se pudo crear la vista previa: {exc}")
+
+    @staticmethod
+    def _make_full(src: str, dst: str) -> None:
+        """Infografía completa en JPG ligero para la página pública (el PNG original pesa ~3 MB)."""
         try:
             from PIL import Image
             with Image.open(src) as im:
                 im = im.convert('RGB')
-                im.thumbnail((1200, 800))
-                # Recorte 1.91:1 centrado (formato de tarjeta de enlace)
-                w, h = im.size
-                target_h = int(w / 1.91)
-                if target_h < h:
-                    top = (h - target_h) // 2
-                    im = im.crop((0, top, w, top + target_h))
-                im.save(dst, 'JPEG', quality=78, optimize=True, progressive=True)
+                im.thumbnail((1600, 1600), Image.LANCZOS)
+                im.save(dst, 'JPEG', quality=84, optimize=True, progressive=True)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"No se pudo crear la vista previa: {exc}")
+            logger.warning(f"No se pudo crear la imagen completa: {exc}")
+
+    @staticmethod
+    def regenerar_imagenes(token: str) -> bool:
+        """Rehace preview.jpg y full.jpg de una publicación existente a partir de su illustration.png."""
+        src = ShareService.file_path(token, 'illustration.png')
+        if not src:
+            return False
+        carpeta = os.path.dirname(src)
+        ShareService._make_preview(src, os.path.join(carpeta, 'preview.jpg'))
+        ShareService._make_full(src, os.path.join(carpeta, 'full.jpg'))
+        return True
 
     @staticmethod
     def _graph_snapshot(graph_data: Dict[str, Any], labels: Optional[Dict[str, str]] = None, rel_labels: Optional[Dict[str, str]] = None):

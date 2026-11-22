@@ -2,6 +2,7 @@
 Rutas públicas de publicaciones (parche MX). Sin login: Traefik las deja pasar sin forwardAuth.
 Solo leen la copia congelada de uploads/shares/<token>/; nunca tocan proyectos, simulaciones ni Zep.
 """
+import os
 from datetime import datetime
 
 from flask import Blueprint, abort, jsonify, render_template, request, send_file
@@ -33,6 +34,10 @@ def public_page(token: str):
     except ValueError:
         fecha = ''
     has_graph = ShareService.file_path(token, 'graph.json') is not None
+    # Versión = fecha del archivo: WhatsApp y los navegadores guardan la imagen por URL; si se regenera, cambia la URL
+    def _ver(nombre: str) -> str:
+        ruta = ShareService.file_path(token, nombre)
+        return f"?v={int(os.path.getmtime(ruta))}" if ruta else ''
     html = render_template(
         'public_share.html',
         titular=meta.get('titular') or meta.get('report_title') or 'Simulación de escenarios',
@@ -43,7 +48,8 @@ def public_page(token: str):
         caption=meta.get('caption', ''),
         has_image=meta.get('has_image', False),
         image_url=f"/api/public/{token}/image.png",
-        preview_url=f"{base}/api/public/{token}/preview.jpg",
+        full_url=f"/api/public/{token}/full.jpg{_ver('full.jpg')}",
+        preview_url=f"{base}/api/public/{token}/preview.jpg{_ver('preview.jpg')}",
         page_url=f"{base}/p/{token}",
         has_graph=has_graph,
         graph_url=f"/api/public/{token}/graph",
@@ -87,6 +93,15 @@ def public_image(token: str):
     if not path:
         abort(404)
     return send_file(path, mimetype='image/png', max_age=86400)
+
+
+@public_bp.route('/api/public/<token>/full.jpg', methods=['GET'])
+def public_full(token: str):
+    """Infografía completa en JPG ligero (página pública); si la publicación es anterior, el PNG original."""
+    path = ShareService.file_path(token, 'full.jpg') or ShareService.file_path(token, 'illustration.png')
+    if not path:
+        return jsonify({"success": False, "error": "Not found"}), 404
+    return send_file(path, mimetype='image/jpeg' if path.endswith('.jpg') else 'image/png', max_age=86400)
 
 
 @public_bp.route('/api/public/<token>/preview.jpg', methods=['GET'])
