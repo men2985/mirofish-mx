@@ -12,7 +12,7 @@ from queue import Queue, Empty
 
 from ..config import Config
 from ..utils.logger import get_logger
-from ..utils.locale import get_locale, set_locale
+from ..utils.locale import get_locale, set_locale, t
 from ..utils.zep import (
     ZEP_INGESTION_WAIT_TIMEOUT_SECONDS,
     call_zep_read_with_retry,
@@ -258,7 +258,7 @@ class ZepGraphMemoryUpdater:
         self.api_key = api_key or Config.ZEP_API_KEY
         
         if not self.api_key:
-            raise ValueError("ZEP_API_KEY未配置")
+            raise ValueError(t('api.zepApiKeyMissing'))
         
         self.client = get_zep_client(self.api_key)
         
@@ -599,6 +599,14 @@ class ZepGraphMemoryUpdater:
     def _wait_for_pending_episodes(self, *, deadline: float | None = None) -> None:
         pending = set(self._pending_episode_uuids)
         if not pending:
+            return
+        # Grafo propio (parche MX): no se bloquea el cierre de la simulación esperando la extracción. El
+        # servicio de grafo sigue procesando en segundo plano (la pantalla en vivo lo ve crecer) y el informe usa lo
+        # que haya. Con Zep se esperaba hasta 10 min y, si no alcanzaba, la simulación quedaba como fallida.
+        from ..utils.local_graph import is_local_graph
+        if is_local_graph(self.graph_id):
+            logger.info(f"{len(pending)} episodios siguen procesándose en el servicio de grafo; no se espera")
+            self._pending_episode_uuids = []
             return
 
         if deadline is None:

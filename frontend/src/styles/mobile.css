@@ -1,0 +1,295 @@
+/*
+ * Capa móvil de MiroFish (parche MX).
+ *
+ * Un solo archivo para no tocar el CSS de cada componente (facilita rebasar sobre upstream).
+ * Los componentes usan <style scoped>, que añade [data-v-xxx] y sube la especificidad; por eso
+ * aquí se usa !important SOLO dentro de este media query.
+ *
+ * Principios:
+ *  1. La acción primero: en el inicio, el formulario va antes que el marketing.
+ *  2. Un panel a la vez: no hay "Dividido"; el selector Grafo/Trabajo ocupa una fila propia.
+ *  3. La consola es un cajón: colapsada a una barra; se abre al tocarla (main.js).
+ *  4. El botón de siguiente paso siempre a mano: pegado al borde inferior.
+ *  5. Lectura cómoda: una columna, márgenes de 20 px, sin texto justificado.
+ */
+@media (max-width: 768px) {
+
+  /* ---------- Base ---------- */
+  html, body { overflow-x: hidden; }
+  /* Texto justificado deja huecos enormes en columnas angostas */
+  .hero-desc, .section-persona, .main-view p { text-align: left !important; }
+
+  /* ---------- Cabecera de los pasos (MainView, Simulation*, Report, Interaction) ---------- */
+  .main-view { height: 100dvh !important; }
+  .app-header {
+    height: auto !important;
+    padding: 10px 16px 8px !important;
+    display: grid !important;
+    grid-template-columns: auto 1fr auto auto;
+    grid-template-areas:
+      "brand step saldo lang"
+      "switch switch switch switch";
+    row-gap: 10px;
+    column-gap: 10px;
+    align-items: center;
+  }
+  .app-header .header-left { grid-area: brand; }
+  .app-header .header-center {
+    grid-area: switch;
+    position: static !important;
+    transform: none !important;
+    width: 100%;
+  }
+  .app-header .view-switcher { display: flex !important; width: 100%; }
+  .app-header .switch-btn { flex: 1; padding: 8px 0 !important; font-size: 13px !important; }
+  .app-header .header-right { display: contents !important; }
+  .app-header .header-right > *:not(.workflow-step) { grid-area: lang; justify-self: end; }
+  .app-header .header-right > .saldo-badge { grid-area: saldo; }  /* saldo de créditos: su propia columna */
+  .app-header .workflow-step {
+    overflow: hidden;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100%;
+    grid-area: step;
+    justify-self: start;
+    display: flex !important;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12px !important;
+  }
+  .app-header .workflow-step .step-num { font-size: 11px !important; }
+  .app-header .workflow-step .step-name {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-header .step-divider,
+  .app-header .status-indicator { display: none !important; }
+  .app-header .brand { font-size: 15px !important; }
+  /* Selector de idioma compacto para que no choque con el nombre del paso */
+  .app-header .header-right > *:not(.workflow-step) { font-size: 12px !important; }
+  .app-header .header-right button, .app-header .header-right select { padding: 4px 8px !important; font-size: 12px !important; }
+
+  /* Un panel a la vez: el oculto no ocupa espacio */
+  .content-area { flex-direction: column; }
+  .panel-wrapper { transition: none !important; }
+  .panel-wrapper[style*="width: 0%"] { display: none !important; }
+  .panel-wrapper[style*="width: 100%"],
+  .panel-wrapper[style*="width: 50%"] { width: 100% !important; border-right: 0 !important; }
+
+  /* ---------- Consolas como cajón ---------- */
+  .system-logs, .console-logs {
+    padding: 0 16px !important;
+    max-height: 44px;
+    overflow: hidden;
+  }
+  .system-logs .log-header, .console-logs .log-header {
+    height: 44px;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-bottom: 0 !important;
+    align-items: center;
+    cursor: pointer;
+    position: relative;
+    padding-right: 24px !important;
+  }
+  .system-logs .log-header::after, .console-logs .log-header::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-left: 1.5px solid #888;
+    border-top: 1.5px solid #888;
+    transform: translateY(-25%) rotate(45deg);
+  }
+  .system-logs.is-open, .console-logs.is-open {
+    max-height: 45dvh;
+    overflow-y: auto;
+    padding-bottom: 12px !important;
+  }
+  .system-logs.is-open .log-header::after, .console-logs.is-open .log-header::after {
+    transform: translateY(-75%) rotate(225deg);
+  }
+
+  /* ---------- Botón de siguiente paso, siempre a mano ---------- */
+  /* Pasos 2 y 4: el botón vive al final de contenido largo; se fija sobre la barra de la consola (44 px) */
+  .env-setup-panel .action-btn.primary:not(:disabled),
+  .report-panel .next-step-btn {
+    position: fixed !important;
+    left: 16px !important;
+    right: 16px !important;
+    bottom: 56px !important;
+    width: auto !important;
+    margin: 0 !important;
+    z-index: 50;
+    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.28);
+  }
+  /* Espacio al final para que el botón fijo no tape el último contenido */
+  .env-setup-panel .scroll-container,
+  .report-panel .main-split-layout { padding-bottom: 76px !important; }
+  /* Paso 3: su acción principal ya está arriba, en la barra de control */
+  .control-bar { position: sticky; top: 0; z-index: 20; }
+
+  /* ---------- Pasos 4 y 5: informe a una columna ---------- */
+  .main-split-layout {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .main-split-layout > .left-panel,
+  .main-split-layout > .left-panel.report-style,
+  .main-split-layout > .right-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: auto !important;
+    flex: none !important;
+    overflow: visible !important;
+    border-right: 0 !important;
+  }
+  .main-split-layout > .left-panel.report-style { padding: 20px 20px 28px !important; }
+  .main-split-layout > .right-panel { border-top: 1px solid #E5E7EB; }
+  /* Paso 5: la conversación es la acción, va antes que el informe de referencia */
+  .interaction-panel .action-bar { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; padding: 14px 16px !important; }
+  .interaction-panel .action-bar-tabs { flex-wrap: wrap !important; gap: 8px !important; width: 100%; }
+  .interaction-panel .action-bar-tabs .tab-pill { white-space: normal !important; text-align: left; }
+  .interaction-panel .dropdown-menu { max-width: calc(100vw - 32px); }
+  .interaction-panel .main-split-layout > .right-panel { order: -1; border-top: 0; border-bottom: 1px solid #E5E7EB; }
+
+  .report-header-block .main-title { font-size: 26px !important; line-height: 1.2 !important; }
+  .report-header-block .sub-title { font-size: 15px !important; }
+  .report-meta .report-id { display: none; }
+  .generated-content { font-size: 16px !important; line-height: 1.65 !important; }
+  .generated-content blockquote { margin-left: 0 !important; margin-right: 0 !important; }
+  /* Sin desplazamiento lateral: el código parte sus líneas y las tablas se ajustan al ancho */
+  .generated-content pre { max-width: 100%; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .generated-content table { width: 100% !important; max-width: 100%; table-layout: fixed; display: table; }
+  .generated-content th, .generated-content td { overflow-wrap: anywhere; word-break: break-word; }
+  .workflow-overview .workflow-metrics { flex-wrap: wrap; row-gap: 8px; }
+  .illustration-block, .share-block { width: auto !important; margin-left: 16px !important; margin-right: 16px !important; }
+
+  /* Pasos 1-3: tarjetas y tablas que se salían de la pantalla */
+  .profiles-list, .config-grid { grid-template-columns: 1fr 1fr !important; }
+  .profiles-list { grid-template-columns: 1fr !important; }
+  .config-item, .agent-card { min-width: 0 !important; }
+  .config-item-value { overflow-wrap: anywhere; }
+  .agents-cards { grid-template-columns: 1fr !important; }
+  .control-bar { flex-wrap: wrap !important; gap: 10px !important; }
+  .control-bar .action-controls { flex: 1 1 100%; }
+  /* Sin desplazamiento lateral: las pestañas de análisis van en dos columnas */
+  .insight-tabs { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px;
+                  overflow: visible !important; max-width: 100%; }
+  .insight-tab { min-width: 0 !important; width: 100% !important; }
+  .insight-tab .tab-label { white-space: normal !important; overflow-wrap: anywhere; }
+
+  /* Paso 2: tarjetas de agentes y publicaciones iniciales sin empujar el panel a los lados */
+  .agents-cards { grid-template-columns: minmax(0, 1fr) !important; overflow-x: hidden !important; }
+  .agent-card { min-width: 0 !important; }
+  .agent-tags, .agent-card-header { flex-wrap: wrap !important; gap: 6px; min-width: 0; }
+  .param-item { flex-wrap: wrap; min-width: 0; gap: 4px; }
+  .param-label, .param-value { min-width: 0; overflow-wrap: anywhere; }
+  .post-header { gap: 8px; min-width: 0; }
+  .post-agent-info { min-width: 0 !important; overflow: hidden; }
+  .post-username { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .env-setup-panel .scroll-container { overflow-x: hidden !important; }
+  /* Paso 3: tarjetas de estado de cada plataforma, una debajo de otra */
+  .status-group { flex-direction: column !important; width: 100%; gap: 8px !important; }
+  .platform-status { min-width: 0 !important; width: 100%; box-sizing: border-box; }
+  .platform-stats { flex-wrap: wrap !important; row-gap: 4px; }
+  /* Paso 4: estadísticas de cada herramienta en la bitácora, en varias líneas */
+  .header-stats { flex-wrap: wrap !important; row-gap: 4px; min-width: 0; max-width: 100%; }
+  .profile-card, .profile-card * { min-width: 0 !important; max-width: 100%; overflow-wrap: break-word; }
+  .action-controls { flex-wrap: wrap !important; gap: 8px !important; width: 100%; }
+  .action-controls .action-btn { white-space: normal !important; flex: 1 1 100%; justify-content: center; }
+  .workflow-steps, .wf-step, .wf-step-content, .wf-step-title-row { min-width: 0 !important; max-width: 100%; }
+  .wf-step-content { flex: 1 1 auto; overflow: hidden; }
+  .step-card, .config-card, .env-card { min-width: 0 !important; }
+  .step-card .card-header { flex-wrap: wrap; row-gap: 8px; }
+  .step-card .step-num, .badge, .app-header .step-num { white-space: nowrap !important; }
+  .step-card .description, .step-card .card-content p { overflow-wrap: break-word; }
+  /* Ruta técnica de la API: ruido para quien usa la herramienta desde el celular */
+  .step-card .api-note { display: none !important; }
+
+  /* ---------- Inicio ---------- */
+  .home-container .navbar { padding: 14px 16px !important; height: auto !important; }
+  .home-container .navbar .github-link { display: none !important; }
+
+  .home-container .main-content {
+    display: flex !important;
+    flex-direction: column;
+    padding: 20px 16px 40px !important;
+  }
+  /* Aplanar para poder reordenar: encabezado, formulario, historial y, al final, la explicación */
+  .home-container .dashboard-section { display: contents !important; }
+  .home-container .hero-section { order: 1; margin-bottom: 20px !important; padding: 0 !important; }
+  .home-container .dashboard-section > .right-panel { order: 2; width: 100% !important; padding: 0 !important; }
+  .home-container .main-content > :last-child { order: 3; }
+  .home-container .dashboard-section > .left-panel { order: 4; width: 100% !important; padding: 32px 0 0 !important; }
+
+  .home-container .hero-right,
+  .home-container .decoration-square,
+  .home-container .scroll-down-btn { display: none !important; }
+  .home-container .hero-left { margin: 0 !important; padding: 0 !important; }
+  .home-container .tag-row { flex-wrap: wrap; gap: 6px !important; margin-bottom: 14px !important; }
+  .home-container .main-title { font-size: 34px !important; line-height: 1.08 !important; margin: 0 0 14px !important; }
+  .home-container .hero-desc { font-size: 15px !important; line-height: 1.55 !important; margin-bottom: 0 !important; }
+  .home-container .slogan-text { display: none !important; }
+
+  .home-container .console-box { width: 100% !important; box-sizing: border-box; }
+  .home-container .console-section { padding: 16px !important; }
+  .home-container .upload-zone { min-height: 120px !important; padding: 16px !important; }
+  .home-container textarea { min-height: 120px !important; font-size: 16px !important; }
+  .home-container .start-engine-btn {
+    width: 100% !important;
+    position: sticky;
+    bottom: 12px;
+    z-index: 20;
+  }
+
+  .home-container .metrics-row { flex-direction: column; gap: 12px !important; }
+  .home-container .metric-card { width: 100% !important; }
+  .home-container .dashboard-section .left-panel .section-title { font-size: 28px !important; }
+  .home-container .metric-card { padding: 16px !important; }
+  .home-container .metrics-row { margin: 20px 0 28px !important; }
+  /* Historial: menos aire y el texto de sección con su tamaño original */
+  .home-container .history-database { margin-top: 28px !important; padding: 16px 0 24px !important; min-height: 0 !important; }
+  .home-container .history-database .section-header { padding: 0 !important; gap: 12px !important; }
+}
+
+/* ---------- Grafo en celular ---------- */
+@media (max-width: 768px) {
+  /* Cabecera del grafo: título corto, botones a la derecha */
+  .graph-panel .panel-header { padding: 10px 12px !important; gap: 8px; }
+  .graph-panel .panel-title { font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* Leyenda: plegada en una pastilla abajo a la izquierda; al abrirla no pasa de media pantalla */
+  .graph-legend { left: 12px !important; bottom: 12px !important; padding: 8px 12px !important; max-width: calc(100% - 24px); max-height: 50%; overflow-y: auto; }
+  .graph-legend .legend-items { margin-top: 8px; }
+  /* Interruptor de etiquetas de relación: compacto abajo a la derecha, lejos de la leyenda */
+  .edge-labels-toggle { top: auto !important; bottom: 12px !important; right: 12px !important; padding: 6px 10px !important; gap: 6px !important; }
+  .edge-labels-toggle .toggle-label { font-size: 11px !important; }
+  /* Ficha del nodo como hoja inferior a todo el ancho */
+  .detail-panel {
+    top: auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: auto !important;
+    max-height: 60% !important;
+    border-radius: 14px 14px 0 0 !important;
+    z-index: 30 !important;
+  }
+}
+
+/* Movimiento reducido: sin transiciones de paneles */
+@media (prefers-reduced-motion: reduce) {
+  .panel-wrapper { transition: none !important; }
+}
+
+@media (max-width: 768px) {
+  /* En celular no hay modo dividido: el botón de maximizar no aplica; el de actualizar queda como icono */
+  .graph-panel .header-tools .btn-text { display: none !important; }
+}

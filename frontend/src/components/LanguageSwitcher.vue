@@ -14,6 +14,10 @@
       >
         {{ loc.label }}
       </li>
+      <!-- Cuenta (parche MX): el menú del encabezado también lleva a créditos y a cerrar sesión -->
+      <li class="switcher-sep" role="separator"></li>
+      <li><a class="switcher-link" href="/_auth/creditos">{{ locale === 'en' ? 'My credits' : 'Mis créditos' }}</a></li>
+      <li><a class="switcher-link" href="/_auth/logout">{{ locale === 'en' ? 'Log out' : 'Cerrar sesión' }}</a></li>
     </ul>
   </div>
 </template>
@@ -121,4 +125,24 @@ onUnmounted(() => {
 }
 
 
+.switcher-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: #EEE;
+}
+
+.switcher-link {
+  display: block;
+  padding: 8px 12px;
+  color: #333;
+  text-decoration: none;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.switcher-link:hover,
+.switcher-link:focus-visible {
+  background: #F5F5F5;
+  outline: none;
+}
 </style>

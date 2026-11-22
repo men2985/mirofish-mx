@@ -46,10 +46,12 @@ export function getTaskStatus(taskId) {
  * @param {String} graphId - 图谱ID
  * @returns {Promise}
  */
-export function getGraphData(graphId) {
+export function getGraphData(graphId, refresh = false) {
+  // refresh=true salta la caché del servidor (botón Actualizar)
   return service({
     url: `/api/graph/data/${graphId}`,
-    method: 'get'
+    method: 'get',
+    params: refresh ? { refresh: 1 } : undefined
   })
 }
 

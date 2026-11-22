@@ -253,7 +253,7 @@ class OasisProfileGenerator:
         self.model_name = model_name or Config.LLM_MODEL_NAME
         
         if not self.api_key:
-            raise ValueError("LLM_API_KEY 未配置")
+            raise ValueError(t('api.llmApiKeyMissing'))
         
         self.client = OpenAI(
             api_key=self.api_key,
@@ -1027,7 +1027,7 @@ class OasisProfileGenerator:
                         progress_callback(
                             current, 
                             total, 
-                            f"已完成 {current}/{total}: {entity.name}（{entity_type}）"
+                            t('progress.profileProgress', current=current, total=total, name=entity.name, type=entity_type)
                         )
                     
                     if error:

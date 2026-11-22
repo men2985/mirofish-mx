@@ -80,7 +80,16 @@ def get_zep_client(api_key: str | None = None, timeout: float | None = None) -> 
     )
     if request_timeout <= 0:
         raise ValueError("Zep request timeout must be greater than 0")
-    return _cached_zep_client(normalized_key, request_timeout)
+    zep_client = _cached_zep_client(normalized_key, request_timeout)
+    if Config.GRAPH_BACKEND == 'graphiti':
+        return _cached_routing_client(normalized_key, request_timeout)
+    return zep_client
+
+
+@lru_cache(maxsize=4)
+def _cached_routing_client(api_key: str, timeout: float):
+    from .local_graph import LocalGraphClient, RoutingGraphClient
+    return RoutingGraphClient(LocalGraphClient(Config.GRAPH_SERVICE_URL), _cached_zep_client(api_key, timeout))
 
 
 def clear_zep_client_cache() -> None:

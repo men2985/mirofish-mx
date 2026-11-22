@@ -3,6 +3,7 @@
 Step2: Zep实体读取与过滤、OASIS模拟准备与运行（全程自动化）
 """
 
+import json
 import os
 import traceback
 from contextlib import nullcontext
@@ -386,6 +387,32 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
         return False, {"reason": f"读取状态文件失败: {str(e)}"}
 
 
+def _simulation_already_ran(simulation_id: str) -> bool:
+    """Protección (parche MX): ¿esta simulación ya tiene rondas o datos de una corrida?
+
+    El frontend original reinicia la simulación al abrir el paso 3 (force) y re-prepara al abrir el paso 2;
+    una recarga del navegador (o una pestaña que Safari en iPhone recarga) borraba así una corrida terminada.
+    """
+    try:
+        run_state = SimulationRunner.get_run_state(simulation_id)
+        if run_state and (run_state.current_round or 0) > 0:
+            return True
+        if run_state and run_state.runner_status in {
+            RunnerStatus.RUNNING, RunnerStatus.PAUSED, RunnerStatus.STOPPING,
+            RunnerStatus.COMPLETED, RunnerStatus.STOPPED,
+        }:
+            return True
+        sim_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, simulation_id)
+        for db in ('twitter_simulation.db', 'reddit_simulation.db'):
+            path = os.path.join(sim_dir, db)
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"No se pudo verificar si {simulation_id} ya corrió: {exc}")
+        return True  # ante la duda, proteger
+    return False
+
+
 @simulation_bp.route('/prepare', methods=['POST'])
 def prepare_simulation():
     """
@@ -455,7 +482,40 @@ def prepare_simulation():
         force_regenerate = data.get('force_regenerate', False)
         logger.info(f"开始处理 /prepare 请求: simulation_id={simulation_id}, force_regenerate={force_regenerate}")
         
+        # Protección: una simulación que ya corrió no se vuelve a preparar sin force_regenerate explícito
+        if not force_regenerate and _simulation_already_ran(simulation_id):
+            logger.info(f"Prepare ignorado: {simulation_id} ya tiene una corrida (usa force_regenerate para rehacerla)")
+            return jsonify({
+                "success": True,
+                "data": {
+                    "simulation_id": simulation_id,
+                    "status": "ready",
+                    "message": t('api.alreadyPrepared'),
+                    "already_prepared": True,
+                    "already_ran": True,
+                }
+            })
+
         # 检查是否已经准备完成（避免重复生成）
+        # Protección (11-22): si ya hay una preparación en curso o en cola para esta simulación, se devuelve esa misma
+        # tarea. La pantalla del paso 2 lanza la preparación cada vez que se monta (al entrar o cambiar de vista) y
+        # mientras una corría se encolaban otras, que cobraban créditos y se pisaban los archivos.
+        from ..models.task import TaskManager as _TM
+        _activa = _TM().active_job_for('simulation_prepare', simulation_id)
+        if _activa:
+            logger.info(f"Prepare ignorado: {simulation_id} ya se está preparando (tarea {_activa})")
+            return jsonify({
+                "success": True,
+                "data": {
+                    "simulation_id": simulation_id,
+                    "task_id": _activa,
+                    "status": "preparing",
+                    "message": "La preparación ya está en curso",
+                    "already_prepared": False,
+                    "already_running": True,
+                }
+            })
+
         if not force_regenerate:
             logger.debug(f"检查模拟 {simulation_id} 是否已准备完成...")
             is_prepared, prepare_info = _check_simulation_prepared(simulation_id)
@@ -535,116 +595,15 @@ def prepare_simulation():
         current_locale = get_locale()
 
         # 定义后台任务
-        def run_prepare():
-            set_locale(current_locale)
-            try:
-                task_manager.update_task(
-                    task_id,
-                    status=TaskStatus.PROCESSING,
-                    progress=0,
-                    message=t('progress.startPreparingEnv')
-                )
-                
-                # 准备模拟（带进度回调）
-                # 存储阶段进度详情
-                stage_details = {}
-                
-                def progress_callback(stage, progress, message, **kwargs):
-                    # 计算总进度
-                    stage_weights = {
-                        "reading": (0, 20),           # 0-20%
-                        "generating_profiles": (20, 70),  # 20-70%
-                        "generating_config": (70, 90),    # 70-90%
-                        "copying_scripts": (90, 100)       # 90-100%
-                    }
-                    
-                    start, end = stage_weights.get(stage, (0, 100))
-                    current_progress = int(start + (end - start) * progress / 100)
-                    
-                    # 构建详细进度信息
-                    stage_names = {
-                        "reading": t('progress.readingGraphEntities'),
-                        "generating_profiles": t('progress.generatingProfiles'),
-                        "generating_config": t('progress.generatingSimConfig'),
-                        "copying_scripts": t('progress.preparingScripts')
-                    }
-                    
-                    stage_index = list(stage_weights.keys()).index(stage) + 1 if stage in stage_weights else 1
-                    total_stages = len(stage_weights)
-                    
-                    # 更新阶段详情
-                    stage_details[stage] = {
-                        "stage_name": stage_names.get(stage, stage),
-                        "stage_progress": progress,
-                        "current": kwargs.get("current", 0),
-                        "total": kwargs.get("total", 0),
-                        "item_name": kwargs.get("item_name", "")
-                    }
-                    
-                    # 构建详细进度信息
-                    detail = stage_details[stage]
-                    progress_detail_data = {
-                        "current_stage": stage,
-                        "current_stage_name": stage_names.get(stage, stage),
-                        "stage_index": stage_index,
-                        "total_stages": total_stages,
-                        "stage_progress": progress,
-                        "current_item": detail["current"],
-                        "total_items": detail["total"],
-                        "item_description": message
-                    }
-                    
-                    # 构建简洁消息
-                    if detail["total"] > 0:
-                        detailed_message = (
-                            f"[{stage_index}/{total_stages}] {stage_names.get(stage, stage)}: "
-                            f"{detail['current']}/{detail['total']} - {message}"
-                        )
-                    else:
-                        detailed_message = f"[{stage_index}/{total_stages}] {stage_names.get(stage, stage)}: {message}"
-                    
-                    task_manager.update_task(
-                        task_id,
-                        progress=current_progress,
-                        message=detailed_message,
-                        progress_detail=progress_detail_data
-                    )
-                
-                result_state = manager.prepare_simulation(
-                    simulation_id=simulation_id,
-                    simulation_requirement=simulation_requirement,
-                    document_text=document_text,
-                    defined_entity_types=entity_types_list,
-                    use_llm_for_profiles=use_llm_for_profiles,
-                    progress_callback=progress_callback,
-                    parallel_profile_count=parallel_profile_count
-                )
-
-                if result_state.status == SimulationStatus.FAILED:
-                    task_manager.fail_task(
-                        task_id,
-                        result_state.error or "模拟准备失败"
-                    )
-                else:
-                    task_manager.complete_task(
-                        task_id,
-                        result=result_state.to_simple_dict()
-                    )
-                
-            except Exception as e:
-                logger.error(f"准备模拟失败: {str(e)}")
-                task_manager.fail_task(task_id, str(e))
-                
-                # 更新模拟状态为失败
-                state = manager.get_simulation(simulation_id)
-                if state:
-                    state.status = SimulationStatus.FAILED
-                    state.error = str(e)
-                    manager._save_simulation_state(state)
-        
-        # 启动后台线程
-        thread = threading.Thread(target=run_prepare, daemon=True)
-        thread.start()
+        # F3: el trabajo lo ejecuta el worker (run_prepare_job); aquí solo se encola
+        task_manager.enqueue(task_id, 'simulation_prepare', {
+            'simulation_id': simulation_id, 'entity_types': entity_types_list,
+            'use_llm_for_profiles': use_llm_for_profiles, 'parallel_profile_count': parallel_profile_count,
+            # La ciudad: territorio (slug, p. ej. "20067-zm") y tamaño de la muestra de ciudadanos
+            'territorio': data.get('territorio') or _territorio_por_defecto(data),
+            'n_ciudadanos': data.get('n_ciudadanos', 60),
+            'max_agentes': data.get('max_agentes'),
+        }, current_locale)
         
         return jsonify({
             "success": True,
@@ -832,7 +791,12 @@ def list_simulations():
         project_id = request.args.get('project_id')
         
         manager = SimulationManager()
+        from ..utils.account import is_admin, owner_of_project, can_see
         simulations = manager.list_simulations(project_id=project_id)
+        if not is_admin():
+            _owners = {}
+            simulations = [s for s in simulations
+                           if can_see(_owners.setdefault(s.project_id, owner_of_project(s.project_id)[1]))]
         
         return jsonify({
             "success": True,
@@ -947,7 +911,15 @@ def get_simulation_history():
         limit = request.args.get('limit', 20, type=int)
         
         manager = SimulationManager()
-        simulations = manager.list_simulations()[:limit]
+        from ..utils.account import is_admin, owner_of_project, can_see
+        simulations = manager.list_simulations()
+        if not is_admin():
+            _owners = {}
+            simulations = [s for s in simulations
+                           if can_see(_owners.setdefault(s.project_id, owner_of_project(s.project_id)[1]))]
+        # Lo más reciente primero (list_simulations lee la carpeta sin orden)
+        simulations.sort(key=lambda s: s.created_at or '', reverse=True)
+        simulations = simulations[:limit]
         
         # 增强模拟数据，只从 Simulation 文件读取
         enriched_simulations = []
@@ -986,7 +958,7 @@ def get_simulation_history():
             project = ProjectManager.get_project(sim.project_id)
             if project and hasattr(project, 'files') and project.files:
                 sim_dict["files"] = [
-                    {"filename": f.get("filename", "未知文件")} 
+                    {"filename": f.get("filename", t('api.unknownFile'))} 
                     for f in project.files[:3]
                 ]
             else:
@@ -1556,12 +1528,12 @@ def start_simulation():
         if not isinstance(enable_graph_memory_update, bool):
             return jsonify({
                 "success": False,
-                "error": "enable_graph_memory_update must be a JSON boolean",
+                "error": t('api.jsonBooleanRequired', field='enable_graph_memory_update'),
             }), 400
         if not isinstance(force, bool):
             return jsonify({
                 "success": False,
-                "error": "force must be a JSON boolean",
+                "error": t('api.jsonBooleanRequired', field='force'),
             }), 400
 
         # 验证 max_rounds 参数
@@ -1594,6 +1566,17 @@ def start_simulation():
                 "success": False,
                 "error": t('api.simulationNotFound', id=simulation_id)
             }), 404
+
+        # Protección: una simulación que ya corrió (o está corriendo) no se reinicia sin restart_confirmed explícito.
+        # El paso 3 del frontend original llama a /start con force=true al montarse: abrir o recargar la página la borraba.
+        if data.get('restart_confirmed') is not True and _simulation_already_ran(simulation_id):
+            current = SimulationRunner.get_run_state(simulation_id)
+            return jsonify({
+                "success": False,
+                "already_ran": True,
+                "runner_status": current.runner_status.value if current else None,
+                "error": t('api.simAlreadyRanConfirm'),
+            }), 409
 
         force_restarted = False
         
@@ -1641,15 +1624,12 @@ def start_simulation():
                     except Exception as error:
                         return jsonify({
                             "success": False,
-                            "error": (
-                                "Cannot restart until the previous simulation "
-                                f"finalizes safely: {error}"
-                            ),
+                            "error": t('api.restartNotFinalized', error=error),
                         }), 409
                     if stopped.runner_status != RunnerStatus.STOPPED:
                         return jsonify({
                             "success": False,
-                            "error": "Previous simulation did not reach STOPPED",
+                            "error": t('api.previousNotStopped'),
                         }), 409
 
                 # 如果是强制模式，清理运行日志
@@ -1659,10 +1639,7 @@ def start_simulation():
                     if not cleanup_result.get("success"):
                         return jsonify({
                             "success": False,
-                            "error": (
-                                "Failed to clean previous simulation logs: "
-                                f"{cleanup_result.get('errors')}"
-                            ),
+                            "error": t('api.cleanupLogsFailed', errors=cleanup_result.get('errors')),
                         }), 500
                     force_restarted = True
 
@@ -1713,10 +1690,7 @@ def start_simulation():
                 if current_graph_id != graph_id:
                     return jsonify({
                         "success": False,
-                        "error": (
-                            "The project graph changed while the simulation "
-                            "was starting; retry after refreshing the project"
-                        ),
+                        "error": t('api.simGraphChanged'),
                     }), 409
                 if (
                     refreshed_state.graph_id
@@ -1724,20 +1698,13 @@ def start_simulation():
                 ):
                     return jsonify({
                         "success": False,
-                        "error": (
-                            "The simulation references an older graph; "
-                            "prepare it again before enabling graph memory"
-                        ),
+                        "error": t('api.simOlderGraphMemory'),
                     }), 409
                 active_reports = get_graph_readers(graph_id)
                 if active_reports:
                     return jsonify({
                         "success": False,
-                        "error": (
-                            "A report is currently reading this graph; wait "
-                            "for report generation to finish before enabling "
-                            "graph memory updates"
-                        ),
+                        "error": t('api.reportReadingGraph'),
                         "active_reports": active_reports,
                     }), 409
                 state = refreshed_state
@@ -1747,15 +1714,24 @@ def start_simulation():
                     graph_id,
                 )
 
-            # 启动模拟。启用图谱写入时仍持有 graph_guard，直到 updater
-            # claim 与进程资源全部发布完成。
-            run_state = SimulationRunner.start_simulation(
-                simulation_id=simulation_id,
-                platform=platform,
-                max_rounds=max_rounds,
-                enable_graph_memory_update=enable_graph_memory_update,
-                graph_id=graph_id
+            # F3b (parche MX): la simulación la arranca y la vigila el worker (run_simulation_job); aquí solo se
+            # encola. Un deploy o reinicio de la API ya no la mata.
+            from ..models.task import TaskManager
+            task_manager = TaskManager()
+            if task_manager.active_job_for('simulation_run', simulation_id):
+                return jsonify({
+                    "success": False,
+                    "error": t('api.simAlreadyRunning', id=simulation_id),
+                }), 409
+            sim_task_id = task_manager.create_task(
+                task_type="simulation_run",
+                metadata={"simulation_id": simulation_id, "project_id": state.project_id},
             )
+            task_manager.enqueue(sim_task_id, 'simulation_run', {
+                'simulation_id': simulation_id, 'platform': platform, 'max_rounds': max_rounds,
+                'enable_graph_memory_update': bool(enable_graph_memory_update), 'graph_id': graph_id,
+            }, get_locale())
+            run_state = SimulationRunner.queued_state(simulation_id, max_rounds)
         
         response_data = run_state.to_dict()
         if max_rounds:
@@ -1862,6 +1838,178 @@ def stop_simulation():
 
 # ============== 实时状态监控接口 ==============
 
+def _territorio_por_defecto(data):
+    """Si piden ciudadanos sin territorio, se usa la ciudad confirmada del usuario."""
+    if not int(data.get('n_ciudadanos') or 0):
+        return None
+    from ..utils.account import current_account, territorio_de_cuenta
+    terr = territorio_de_cuenta(current_account())
+    return terr['slug'] if terr else None
+
+
+@simulation_bp.route('/tarifas', methods=['GET'])
+def tarifas_validacion():
+    """Tarifas por unidad (créditos), saldo y ciudad del usuario para la confirmación del recorrido completo."""
+    from ..services.credits import config, multiplier
+    from ..utils.account import current_account
+    mult = multiplier('perfiles_ia')
+    f = lambda k, d: float(config(k, d))  # noqa: E731
+    acct = current_account() or {}
+    ciudad = None
+    if acct.get('municipio_cve'):
+        from ..utils.db import connect
+        with connect() as c:
+            m = c.execute("SELECT nombre, estado, zona_nombre FROM municipios WHERE cve = %s",
+                          (acct['municipio_cve'],)).fetchone()
+        if m:
+            alc = acct.get('alcance') or 'zm'
+            ciudad = {'municipio': m['nombre'], 'estado': m['estado'], 'alcance': alc,
+                      'nombre': {'zm': f"{m['nombre']} y su zona metropolitana", 'municipio': m['nombre'],
+                                 'radio': f"{m['nombre']} y {acct.get('radio_km') or 40} km a la redonda"}.get(alc, m['nombre'])}
+    return jsonify({"success": True, "data": {
+        "tarifas": {"grafo_por_fragmento": round(f('estimado_fragmento_grafo_usd', '0.0015') * mult, 6),
+                    "preparacion_por_agente": round(f('estimado_perfil_usd', '0.0007') * mult, 6),
+                    "ciudadano_por_idea": round(f('estimado_ciudadano_usd', '0.0003') * mult, 6),
+                    "simulacion_por_agente_ronda": round(f('estimado_agente_ronda_usd', '0.00009') * mult, 6),
+                    "informe": round(f('estimado_informe_usd', '0.03') * mult, 4),
+                    "ilustracion": round(0.06 * multiplier('ilustracion_ia'), 4),
+                    "segundos_por_agente_ronda": f('estimado_segundos_agente_ronda', '0.15'),
+                    "minutos_simulados_por_ronda": 60},
+        "cuenta": {"account_type": acct.get('account_type'), "saldo": float(acct.get('saldo_usd') or 0)},
+        "ciudad": ciudad,
+    }})
+
+
+@simulation_bp.route('/afinar', methods=['POST'])
+def afinar_idea():
+    """Un turno del chat 'Afinar tu idea'. multipart: historial (JSON), forzar ('1' = lanzar así), files (opcional)."""
+    import tempfile
+    from ..services.afinar_idea import turno
+    from ..utils.account import current_account
+    from ..utils.file_parser import FileParser
+    try:
+        historial = json.loads(request.form.get('historial') or '[]')
+    except ValueError:
+        historial = []
+    if not historial or not str(historial[-1].get('texto', '')).strip():
+        return jsonify({"success": False, "error": "Escribe tu idea para empezar."}), 400
+    documento = []
+    for f in request.files.getlist('files'):
+        if not f or not f.filename or not FileParser.is_supported(f.filename):
+            continue
+        with tempfile.NamedTemporaryFile(suffix=os.path.splitext(f.filename)[1].lower()) as tmp:
+            f.save(tmp.name)
+            try:
+                documento.append(FileParser.extract_text(tmp.name))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"afinar: no se pudo leer {f.filename}: {exc}")
+    acct = current_account() or {}
+    ciudad = None
+    if acct.get('municipio_cve'):
+        from ..utils.db import connect
+        with connect() as c:
+            m = c.execute("SELECT nombre, estado FROM municipios WHERE cve = %s", (acct['municipio_cve'],)).fetchone()
+        ciudad = f"{m['nombre']}, {m['estado']}" if m else None
+    try:
+        res = turno(historial, ciudad, '\n\n'.join(documento), request.form.get('forzar') == '1',
+                    modo='guion' if request.form.get('modo') == 'guion' else None)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"afinar: falló el turno: {exc}")
+        return jsonify({"success": False, "error": "No pude revisar tu idea, intenta de nuevo."}), 502
+    return jsonify({"success": True, "data": {**res, "ciudad": ciudad, "con_documento": bool(documento)}})
+
+
+@simulation_bp.route('/validar', methods=['POST'])
+def validar_idea():
+    """Lanza el recorrido completo (grafo -> preparación con ciudadanos -> simulación en vivo -> informe -> infografía)
+    como un solo trabajo del worker. Body: project_id, n_ciudadanos, max_agentes, rondas, alcance (opcional)."""
+    from ..models.task import TaskManager
+    from ..utils.account import current_account, territorio_de_cuenta
+    data = request.get_json() or {}
+    project_id = data.get('project_id')
+    project = ProjectManager.get_project(project_id) if project_id else None
+    if not project:
+        return jsonify({"success": False, "error": t('api.projectNotFound', id=project_id)}), 404
+    if not project.ontology:
+        return jsonify({"success": False, "error": t('api.ontologyNotFound')}), 400
+    n_ciud = max(0, min(int(data.get('n_ciudadanos') or 0), 300))
+    terr = territorio_de_cuenta(current_account(), data.get('alcance')) if n_ciud else None
+    tm = TaskManager()
+    task_id = tm.create_task(task_type='pipeline', metadata={'project_id': project_id})
+    tm.enqueue(task_id, 'pipeline', {
+        'project_id': project_id, 'n_ciudadanos': n_ciud if terr else 0, 'territorio': terr['slug'] if terr else None,
+        'max_agentes': int(data['max_agentes']) if data.get('max_agentes') else None,
+        'rondas': max(10, min(int(data.get('rondas') or 40), 336)),
+    }, get_locale())
+    return jsonify({"success": True, "data": {"task_id": task_id, "project_id": project_id,
+                                               "territorio": terr['nombre'] if terr else None}})
+
+
+@simulation_bp.route('/validar/<task_id>', methods=['GET'])
+def estado_validacion(task_id: str):
+    """Estado del recorrido completo para la pantalla en vivo: fase, avance, ids (grafo, simulación, informe)."""
+    from ..models.task import TaskManager
+    task = TaskManager().get_task(task_id)
+    if not task or task.task_type != 'pipeline':
+        return jsonify({"success": False, "error": "No encontrado."}), 404
+    return jsonify({"success": True, "data": {
+        "task_id": task_id, "status": task.status.value, "progress": task.progress, "message": task.message,
+        "error": task.error, **(task.progress_detail or {}), **(task.result or {}),
+    }})
+
+
+@simulation_bp.route('/<simulation_id>/estimado', methods=['GET'])
+def estimado_simulacion(simulation_id: str):
+    """Estimación previa para la ventana de confirmación (F4): estado de la preparación, agentes, créditos por paso
+    (costo real estimado x multiplicador) y saldo de la cuenta. No dispara nada."""
+    from ..models.task import TaskManager
+    from ..services.credits import config, multiplier
+    from ..utils.account import current_account
+    manager = SimulationManager()
+    state = manager.get_simulation(simulation_id)
+    if not state:
+        return jsonify({"success": False, "error": t('api.simulationNotFound', id=simulation_id)}), 404
+    preparada, _ = _check_simulation_prepared(simulation_id)
+    preparando = bool(TaskManager().active_job_for('simulation_prepare', simulation_id))
+    agentes = 0
+    cfg = manager.get_simulation_config(simulation_id) or {}
+    agentes = len(cfg.get('agent_configs') or []) or int(getattr(state, 'entities_count', 0) or 0)
+    if not agentes and state.graph_id:
+        # Antes de preparar: los agentes salen de las entidades del grafo (lectura rápida, sin IA)
+        try:
+            agentes = ZepEntityReader().filter_defined_entities(
+                graph_id=state.graph_id, defined_entity_types=None, enrich_with_edges=False).filtered_count
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"estimado: no se pudieron contar entidades de {state.graph_id}: {exc}")
+    rondas = request.args.get('rounds', type=int) or 0
+    if not rondas:
+        tc = cfg.get('time_config') or {}
+        rondas = int((tc.get('total_simulation_hours') or 0) * 60 / (tc.get('minutes_per_round') or 60)) if tc else 0
+    rondas = rondas or 40  # sin configuración todavía: las 40 rondas recomendadas
+    mult = multiplier('perfiles_ia')
+    f = lambda k, d: float(config(k, d))  # noqa: E731
+    perfiles = 0.0 if preparada else agentes * f('estimado_perfil_usd', '0.0007') * mult
+    simulacion = agentes * rondas * f('estimado_agente_ronda_usd', '0.00009') * mult
+    informe = f('estimado_informe_usd', '0.03') * mult
+    acct = current_account() or {}
+    minutos_por_ronda = int((cfg.get('time_config') or {}).get('minutes_per_round') or 60)
+    return jsonify({"success": True, "data": {
+        # Tarifas por unidad YA multiplicadas (créditos), para que la confirmación recalcule al mover las barras
+        "tarifas": {"preparacion_por_agente": round(f('estimado_perfil_usd', '0.0007') * mult, 6),
+                    "simulacion_por_agente_ronda": round(f('estimado_agente_ronda_usd', '0.00009') * mult, 6),
+                    "informe": round(informe, 4),
+                    "segundos_por_agente_ronda": f('estimado_segundos_agente_ronda', '0.15'),
+                    "minutos_simulados_por_ronda": minutos_por_ronda},
+        "rondas_max": int((cfg.get('time_config') or {}).get('total_simulation_hours') or 336) * 60 // minutos_por_ronda,
+        "simulation_id": simulation_id, "preparada": preparada, "preparando": preparando,
+        "agentes": agentes, "rondas": rondas,
+        "minutos_simulacion": max(1, round(agentes * rondas * f('estimado_segundos_agente_ronda', '0.15') / 60)),
+        "creditos": {"preparacion": round(perfiles, 2), "simulacion": round(simulacion, 2),
+                     "informe": round(informe, 2), "total": round(perfiles + simulacion + informe, 2)},
+        "cuenta": {"account_type": acct.get('account_type'), "saldo": float(acct.get('saldo_usd') or 0)},
+    }})
+
+
 @simulation_bp.route('/<simulation_id>/run-status', methods=['GET'])
 def get_run_status(simulation_id: str):
     """
@@ -1890,7 +2038,13 @@ def get_run_status(simulation_id: str):
     """
     try:
         run_state = SimulationRunner.get_run_state(simulation_id)
-        
+        # F3b: mientras el trabajo espera en la cola del worker, el estado viejo (o ninguno) no refleja el arranque
+        from ..models.task import TaskManager
+        if (run_state is None or run_state.runner_status in (RunnerStatus.COMPLETED, RunnerStatus.STOPPED,
+                                                             RunnerStatus.FAILED, RunnerStatus.IDLE)) \
+                and TaskManager().active_job_for('simulation_run', simulation_id, queued_only=True):
+            return jsonify({"success": True, "data": SimulationRunner.queued_state(simulation_id).to_dict()})
+
         if not run_state:
             return jsonify({
                 "success": True,
@@ -2876,3 +3030,129 @@ def close_simulation_env():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+# ============== F3: cuerpo del trabajo de preparación (lo ejecuta el worker) ==============
+def run_prepare_job(task_id, params, current_locale):
+    from ..models.task import TaskManager, TaskStatus
+    simulation_id = params['simulation_id']
+    entity_types_list = params.get('entity_types')
+    use_llm_for_profiles = params.get('use_llm_for_profiles', True)
+    parallel_profile_count = params.get('parallel_profile_count', 5)
+    territorio = params.get('territorio')
+    n_ciudadanos = params.get('n_ciudadanos', 60)
+    max_agentes = params.get('max_agentes')
+    task_manager = TaskManager()
+    manager = SimulationManager()
+    _state = manager.get_simulation(simulation_id)
+    _project = ProjectManager.get_project(_state.project_id)
+    simulation_requirement = _project.simulation_requirement or ''
+    document_text = ProjectManager.get_extracted_text(_state.project_id) or ''
+    set_locale(current_locale)
+    try:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            progress=0,
+            message=t('progress.startPreparingEnv')
+        )
+
+        # 准备模拟（带进度回调）
+        # 存储阶段进度详情
+        stage_details = {}
+
+        def progress_callback(stage, progress, message, **kwargs):
+            # 计算总进度
+            stage_weights = {
+                "reading": (0, 20),           # 0-20%
+                "generating_profiles": (20, 70),  # 20-70%
+                "generating_config": (70, 90),    # 70-90%
+                "copying_scripts": (90, 100)       # 90-100%
+            }
+
+            start, end = stage_weights.get(stage, (0, 100))
+            current_progress = int(start + (end - start) * progress / 100)
+
+            # 构建详细进度信息
+            stage_names = {
+                "reading": t('progress.readingGraphEntities'),
+                "generating_profiles": t('progress.generatingProfiles'),
+                "generating_config": t('progress.generatingSimConfig'),
+                "copying_scripts": t('progress.preparingScripts')
+            }
+
+            stage_index = list(stage_weights.keys()).index(stage) + 1 if stage in stage_weights else 1
+            total_stages = len(stage_weights)
+
+            # 更新阶段详情
+            stage_details[stage] = {
+                "stage_name": stage_names.get(stage, stage),
+                "stage_progress": progress,
+                "current": kwargs.get("current", 0),
+                "total": kwargs.get("total", 0),
+                "item_name": kwargs.get("item_name", "")
+            }
+
+            # 构建详细进度信息
+            detail = stage_details[stage]
+            progress_detail_data = {
+                "current_stage": stage,
+                "current_stage_name": stage_names.get(stage, stage),
+                "stage_index": stage_index,
+                "total_stages": total_stages,
+                "stage_progress": progress,
+                "current_item": detail["current"],
+                "total_items": detail["total"],
+                "item_description": message
+            }
+
+            # 构建简洁消息
+            if detail["total"] > 0:
+                detailed_message = (
+                    f"[{stage_index}/{total_stages}] {stage_names.get(stage, stage)}: "
+                    f"{detail['current']}/{detail['total']} - {message}"
+                )
+            else:
+                detailed_message = f"[{stage_index}/{total_stages}] {stage_names.get(stage, stage)}: {message}"
+
+            task_manager.update_task(
+                task_id,
+                progress=current_progress,
+                message=detailed_message,
+                progress_detail=progress_detail_data
+            )
+
+        result_state = manager.prepare_simulation(
+            simulation_id=simulation_id,
+            simulation_requirement=simulation_requirement,
+            document_text=document_text,
+            defined_entity_types=entity_types_list,
+            use_llm_for_profiles=use_llm_for_profiles,
+            progress_callback=progress_callback,
+            parallel_profile_count=parallel_profile_count,
+            territorio=territorio,
+            n_ciudadanos=n_ciudadanos,
+            max_agentes=max_agentes,
+        )
+
+        if result_state.status == SimulationStatus.FAILED:
+            task_manager.fail_task(
+                task_id,
+                result_state.error or t('api.simulationPrepareFailed')
+            )
+        else:
+            task_manager.complete_task(
+                task_id,
+                result=result_state.to_simple_dict()
+            )
+
+    except Exception as e:
+        logger.error(f"准备模拟失败: {str(e)}")
+        task_manager.fail_task(task_id, str(e))
+
+        # 更新模拟状态为失败
+        state = manager.get_simulation(simulation_id)
+        if state:
+            state.status = SimulationStatus.FAILED
+            state.error = str(e)
+            manager._save_simulation_state(state)

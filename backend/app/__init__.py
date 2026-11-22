@@ -48,6 +48,13 @@ def create_app(config_class=Config):
     if should_log_startup:
         logger.info("已注册模拟进程清理函数")
     
+    # F4 (parche MX): cada usuario solo ve y toca lo suyo; el admin ve todo
+    from .utils.account import guard_request, charge_request
+    from .services.credits import install_context_propagation
+    install_context_propagation()  # los hilos de ThreadPoolExecutor heredan el medidor de créditos
+    app.before_request(guard_request)
+    app.after_request(charge_request)
+
     # 请求日志中间件
     @app.before_request
     def log_request():
@@ -67,6 +74,9 @@ def create_app(config_class=Config):
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
+    # Publicaciones públicas sin login (parche MX)
+    from .api.public import public_bp
+    app.register_blueprint(public_bp)
     
     # 健康检查
     @app.route('/health')

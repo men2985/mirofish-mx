@@ -1,6 +1,11 @@
 <template>
   <div class="env-setup-panel">
     <div class="scroll-container">
+      <!-- Confirmación pendiente (parche MX): nada que gaste créditos arranca solo -->
+      <div v-if="esperaConfirmacion" class="confirm-banner" role="status">
+        <span>La preparación de ciudadanos y perfiles espera tu confirmación.</span>
+        <button type="button" @click="pedirPreparacion">Preparar</button>
+      </div>
       <!-- Step 01: 模拟实例 -->
       <div class="step-card" :class="{ 'active': phase === 0, 'completed': phase > 0 }">
         <div class="card-header">
@@ -22,19 +27,19 @@
 
           <div v-if="simulationId" class="info-card">
             <div class="info-row">
-              <span class="info-label">Project ID</span>
+              <span class="info-label">{{ $t('step2.projectId') }}</span>
               <span class="info-value mono">{{ projectData?.project_id }}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Graph ID</span>
+              <span class="info-label">{{ $t('step2.graphId') }}</span>
               <span class="info-value mono">{{ projectData?.graph_id }}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Simulation ID</span>
+              <span class="info-label">{{ $t('step2.simulationId') }}</span>
               <span class="info-value mono">{{ simulationId }}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Task ID</span>
+              <span class="info-label">{{ $t('step2.taskId') }}</span>
               <span class="info-value mono">{{ taskId || $t('step2.asyncTaskDone') }}</span>
             </div>
           </div>
@@ -90,7 +95,7 @@
                 @click="selectProfile(profile)"
               >
                 <div class="profile-header">
-                  <span class="profile-realname">{{ profile.username || 'Unknown' }}</span>
+                  <span class="profile-realname">{{ profile.username || $t('common.unknown') }}</span>
                   <span class="profile-username">@{{ profile.name || `agent_${idx}` }}</span>
                 </div>
                 <div class="profile-meta">
@@ -194,7 +199,7 @@
                   <!-- 卡片头部 -->
                   <div class="agent-card-header">
                     <div class="agent-identity">
-                      <span class="agent-id">Agent {{ agent.agent_id }}</span>
+                      <span class="agent-id">{{ $t('step2.agentLabel', { id: agent.agent_id }) }}</span>
                       <span class="agent-name">{{ agent.entity_name }}</span>
                     </div>
                     <div class="agent-tags">
@@ -405,7 +410,7 @@
                     <div class="post-header">
                       <span class="post-role">{{ post.poster_type }}</span>
                       <span class="post-agent-info">
-                        <span class="post-id">Agent {{ post.poster_agent_id }}</span>
+                        <span class="post-id">{{ $t('step2.agentLabel', { id: post.poster_agent_id }) }}</span>
                         <span class="post-username">@{{ getAgentUsername(post.poster_agent_id) }}</span>
                       </span>
                     </div>
@@ -440,7 +445,7 @@
             <div class="rounds-header">
               <div class="header-left">
                 <span class="section-title">{{ $t('step2.roundsConfig') }}</span>
-                <span class="section-desc">{{ $t('step2.roundsConfigDesc', { hours: simulationConfig?.time_config?.total_simulation_hours || '-', minutesPerRound: simulationConfig?.time_config?.minutes_per_round || '-' }) }}</span>
+                <span class="section-desc">{{ $t('step2.roundsConfigDesc', { hours: simulationConfig?.time_config?.total_simulation_hours || '-', days: Math.round((simulationConfig?.time_config?.total_simulation_hours || 0) / 24), minutesPerRound: simulationConfig?.time_config?.minutes_per_round || '-' }) }}</span>
               </div>
               <label class="switch-control">
                 <input type="checkbox" v-model="useCustomRounds">
@@ -457,7 +462,7 @@
                     <span class="val-unit">{{ $t('step2.roundsUnit') }}</span>
                   </div>
                   <div class="slider-meta-info">
-                    <span>{{ $t('step2.estimatedDuration', { minutes: Math.round(customMaxRounds * 0.6) }) }}</span>
+                    <span>{{ $t('step2.estimatedDuration', { agents: agentesEstimados, simulated: tiempoSimulado(customMaxRounds, simulationConfig?.time_config?.minutes_per_round || 60), minutes: minutosEstimados(customMaxRounds) }) }}</span>
                   </div>
                 </div>
 
@@ -497,7 +502,7 @@
                           <circle cx="12" cy="12" r="10"></circle>
                           <polyline points="12 6 12 12 16 14"></polyline>
                         </svg>
-                        {{ $t('step2.estimatedDurationFull', { minutes: Math.round(autoGeneratedRounds * 0.6) }) }}
+                        {{ $t('step2.estimatedDurationFull', { agents: agentesEstimados, simulated: tiempoSimulado(autoGeneratedRounds, simulationConfig?.time_config?.minutes_per_round || 60), minutes: minutosEstimados(autoGeneratedRounds) }) }}
                       </span>
                     </div>
                     <div class="auto-desc">
@@ -618,8 +623,8 @@
     <!-- Bottom Info / Logs -->
     <div class="system-logs">
       <div class="log-header">
-        <span class="log-title">SYSTEM DASHBOARD</span>
-        <span class="log-id">{{ simulationId || 'NO_SIMULATION' }}</span>
+        <span class="log-title">{{ $t('common.systemDashboard') }}</span>
+        <span class="log-id">{{ simulationId || $t('common.noSimulation') }}</span>
       </div>
       <div class="log-content" ref="logContent">
         <div class="log-line" v-for="(log, idx) in systemLogs" :key="idx">
@@ -633,9 +638,11 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { confirmarGasto, setAuto, isAuto, marcarConfirmado, guardarRondas, leerRondas, tiempoSimulado } from '../api/confirmar'
 import { useI18n } from 'vue-i18n'
 import {
   prepareSimulation,
+  getEstimado,
   getPrepareStatus,
   getSimulationProfilesRealtime,
   getSimulationConfig,
@@ -748,8 +755,80 @@ const handlePrepareFailure = (message) => {
   emit('update-status', 'error')
 }
 
+// ---- Confirmación antes de gastar + modo automático (parche MX) ----
+const esperaConfirmacion = ref(false)
+const maxAgentesElegidos = ref(null)
+
+// Duración estimada (medida 11-22: ~0.15 s por agente por ronda con DeepSeek sin razonamiento; el original decía
+// 0.6 min por ronda para 100 agentes, de cuando razonaba y usaba BERT)
+const agentesEstimados = computed(() =>
+  simulationConfig.value?.agent_configs?.length || profiles.value.length || expectedTotal.value || 100)
+const minutosEstimados = (rondas) => Math.max(1, Math.round((rondas || 0) * agentesEstimados.value * 0.15 / 60))
+
+const pedirPreparacion = async () => {
+  if (!props.simulationId) return
+  let est = null
+  try { est = (await getEstimado(props.simulationId)).data } catch (e) { /* sin estimación: se confirma igual */ }
+  if (est && (est.preparada || est.preparando)) {
+    esperaConfirmacion.value = false
+    startPrepareSimulation()  // gratis: devuelve la preparación lista o la que ya está en curso
+    return
+  }
+  const total = est?.agentes || 0
+  const r = await confirmarGasto({
+    titulo: 'Preparar ciudadanos y perfiles',
+    detalle: 'Elige cuántos agentes y rondas. Ahora se cobra solo la preparación; la simulación y el informe se confirman después, salvo que continúes automáticamente.',
+    tarifas: est?.tarifas,
+    ajustes: {
+      agentes: total ? { min: Math.min(10, total), max: total, valor: total } : null,
+      rondas: { min: 10, max: Math.max(10, est?.rondas_max || 336), valor: Math.min(40, est?.rondas_max || 40) },
+      incluirPreparacion: true,
+      incluirInforme: true,
+    },
+    lineas: est?.tarifas ? undefined : [{ label: 'Preparación', creditos: est?.creditos?.preparacion }],
+    cuenta: est?.cuenta,
+    ofrecerAuto: true,
+    boton: 'Preparar',
+  })
+  if (!r.ok) {
+    esperaConfirmacion.value = true
+    addLog('Preparación en espera: confírmala para continuar.')
+    return
+  }
+  setAuto(props.simulationId, r.auto)
+  maxAgentesElegidos.value = r.agentes && total && r.agentes < total ? r.agentes : null
+  if (r.rondas) guardarRondas(props.simulationId, r.rondas)
+  if (maxAgentesElegidos.value) addLog(`Se prepararán ${maxAgentesElegidos.value} de ${total} agentes (equilibrado por tipo).`)
+  if (r.auto) addLog('Modo automático: al terminar la preparación se simula y se genera el informe.')
+  esperaConfirmacion.value = false
+  startPrepareSimulation()
+}
+
 // 处理开始模拟按钮点击
-const handleStartSimulation = () => {
+const handleStartSimulation = async () => {
+  if (!isAuto(props.simulationId)) {
+    const rondas = useCustomRounds.value ? customMaxRounds.value : autoGeneratedRounds.value
+    let est = null
+    try { est = (await getEstimado(props.simulationId, rondas)).data } catch (e) { /* sin estimación */ }
+    const r = await confirmarGasto({
+      titulo: 'Iniciar la simulación',
+      detalle: `${est?.agentes || agentesEstimados.value} agentes. Cada ronda es 1 h de vida en la ciudad; de madrugada casi nadie publica.`,
+      tarifas: est?.tarifas,
+      ajustes: {
+        agentes: { min: est?.agentes || agentesEstimados.value, max: est?.agentes || agentesEstimados.value, valor: est?.agentes || agentesEstimados.value },
+        rondas: { min: 10, max: Math.max(10, autoGeneratedRounds.value || 336), valor: rondas },
+        incluirInforme: true,
+      },
+      lineas: est?.tarifas ? undefined : [{ label: 'Simulación', creditos: est?.creditos?.simulacion }],
+      cuenta: est?.cuenta,
+      ofrecerAuto: true,
+      boton: 'Iniciar simulación',
+    })
+    if (!r.ok) return
+    setAuto(props.simulationId, r.auto)
+    if (r.rondas) { useCustomRounds.value = true; customMaxRounds.value = r.rondas }
+  }
+  marcarConfirmado(props.simulationId, 'sim')
   // 构建传递给父组件的参数
   const params = {}
   
@@ -794,7 +873,8 @@ const startPrepareSimulation = async () => {
     const res = await prepareSimulation({
       simulation_id: props.simulationId,
       use_llm_for_profiles: true,
-      parallel_profile_count: 5
+      parallel_profile_count: 5,
+      ...(maxAgentesElegidos.value ? { max_agentes: maxAgentesElegidos.value } : {})
     })
     
     if (res.success && res.data) {
@@ -1022,8 +1102,17 @@ const fetchConfigRealtime = async () => {
         
         stopConfigPolling()
         phase.value = 4
+        const rondasElegidas = leerRondas(props.simulationId)
+        if (rondasElegidas && autoGeneratedRounds.value) {
+          useCustomRounds.value = true
+          customMaxRounds.value = Math.min(rondasElegidas, autoGeneratedRounds.value)
+        }
         addLog(t('log.envSetupComplete'))
         emit('update-status', 'completed')
+        if (isAuto(props.simulationId)) {
+          addLog('Modo automático: iniciando la simulación…')
+          setTimeout(() => handleStartSimulation(), 1500)
+        }
       }
     }
   } catch (err) {
@@ -1090,7 +1179,7 @@ onMounted(() => {
   // 自动开始准备流程
   if (props.simulationId) {
     addLog(t('log.step2Init'))
-    startPrepareSimulation()
+    pedirPreparacion()
   }
 })
 
@@ -1102,6 +1191,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.confirm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #111827;
+  font-size: 14px;
+}
+.confirm-banner button {
+  padding: 8px 16px;
+  border: 0;
+  background: #111827;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
 .env-setup-panel {
   height: 100%;
   display: flex;

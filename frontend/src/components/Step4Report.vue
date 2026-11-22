@@ -8,10 +8,15 @@
           <!-- Report Header -->
           <div class="report-header-block">
             <div class="report-meta">
-              <span class="report-tag">Prediction Report</span>
+              <span class="report-tag">{{ $t('step4.predictionReport') }}</span>
               <span class="report-id">ID: {{ reportId || 'REF-2024-X92' }}</span>
             </div>
             <h1 class="main-title">{{ reportOutline.title }}</h1>
+            <!-- Ilustración bajo el título (parche MX) -->
+            <figure v-if="illustration.meta && illustrationSrc" class="report-hero-figure">
+              <img :src="illustrationSrc" :alt="illustration.meta.caption || ''" />
+              <figcaption v-if="illustration.meta.caption">{{ illustration.meta.caption }}</figcaption>
+            </figure>
             <p class="sub-title">{{ reportOutline.summary }}</p>
             <div class="header-divider"></div>
           </div>
@@ -72,7 +77,7 @@
             <div class="waiting-ring"></div>
             <div class="waiting-ring"></div>
           </div>
-          <span class="waiting-text">Waiting for Report Agent...</span>
+          <span class="waiting-text">{{ $t('step4.waitingForReportAgent') }}</span>
         </div>
       </div>
 
@@ -89,15 +94,15 @@
         <div class="workflow-overview" v-if="agentLogs.length > 0 || reportOutline">
           <div class="workflow-metrics">
             <div class="metric">
-              <span class="metric-label">Sections</span>
+              <span class="metric-label">{{ $t('step4.metricSections') }}</span>
               <span class="metric-value mono">{{ completedSections }}/{{ totalSections }}</span>
             </div>
             <div class="metric">
-              <span class="metric-label">Elapsed</span>
+              <span class="metric-label">{{ $t('step4.metricElapsed') }}</span>
               <span class="metric-value mono">{{ formatElapsedTime }}</span>
             </div>
             <div class="metric">
-              <span class="metric-label">Tools</span>
+              <span class="metric-label">{{ $t('step4.metricTools') }}</span>
               <span class="metric-value mono">{{ totalToolCalls }}</span>
             </div>
             <div class="metric metric-right">
@@ -136,6 +141,45 @@
             </svg>
           </button>
 
+          <!-- Ilustración del informe (parche MX): OpenAI Images a partir de full_report.md -->
+          <!-- Publicar y compartir (parche MX): copia congelada pública en /p/<token> -->
+          <div v-if="isComplete" class="share-block">
+            <div class="illustration-head">
+              <span class="illustration-title">{{ $t('step4.shareTitle') }}</span>
+              <span class="illustration-hint">{{ share.data ? $t('step4.sharePublishedHint') : $t('step4.shareHint') }}</span>
+            </div>
+            <p v-if="share.error" class="illustration-error">{{ share.error }}</p>
+            <div v-if="!share.data" class="illustration-actions">
+              <button class="illustration-btn" :disabled="share.loading" @click="publishShare">
+                <span v-if="share.loading" class="illustration-spinner"></span>
+                {{ share.loading ? $t('step4.sharePublishing') : $t('step4.sharePublish') }}
+              </button>
+            </div>
+            <template v-else>
+              <a class="share-link" :href="share.data.url" target="_blank" rel="noopener">{{ share.data.url }}</a>
+              <div class="illustration-actions">
+                <a class="illustration-btn whatsapp" :href="whatsappHref" target="_blank" rel="noopener">{{ $t('step4.shareWhatsapp') }}</a>
+                <button class="illustration-btn secondary" @click="copyShareLink">{{ share.copied ? $t('step4.shareCopied') : $t('step4.shareCopy') }}</button>
+                <button class="illustration-btn secondary danger" :disabled="share.loading" @click="unpublishShare">{{ $t('step4.shareUnpublish') }}</button>
+              </div>
+            </template>
+          </div>
+
+          <div v-if="isComplete && illustration.available" class="illustration-block">
+            <div class="illustration-head">
+              <span class="illustration-title">{{ $t('step4.illustrationTitle') }}</span>
+              <span class="illustration-hint">{{ $t('step4.illustrationHint') }}</span>
+            </div>
+            <p v-if="illustration.error" class="illustration-error">{{ illustration.error }}</p>
+            <div class="illustration-actions">
+              <button class="illustration-btn" :disabled="illustration.loading" @click="runIllustration(!!illustration.meta)">
+                <span v-if="illustration.loading" class="illustration-spinner"></span>
+                {{ illustration.loading ? $t('step4.illustrationGenerating') : (illustration.meta ? $t('step4.illustrationRegenerate') : $t('step4.illustrationGenerate')) }}
+              </button>
+              <a v-if="illustration.meta && !illustration.loading" class="illustration-btn secondary" :href="illustrationDownload" download>{{ $t('step4.illustrationDownload') }}</a>
+            </div>
+          </div>
+
           <div class="workflow-divider"></div>
         </div>
 
@@ -166,11 +210,11 @@
                   <!-- Report Start -->
                   <template v-if="log.action === 'report_start'">
                     <div class="info-row">
-                      <span class="info-key">Simulation</span>
+                      <span class="info-key">{{ $t('step4.infoSimulation') }}</span>
                       <span class="info-val mono">{{ log.details?.simulation_id }}</span>
                     </div>
                     <div class="info-row" v-if="log.details?.simulation_requirement">
-                      <span class="info-key">Requirement</span>
+                      <span class="info-key">{{ $t('step4.infoRequirement') }}</span>
                       <span class="info-val">{{ log.details.simulation_requirement }}</span>
                     </div>
                   </template>
@@ -182,7 +226,7 @@
                   <template v-if="log.action === 'planning_complete'">
                     <div class="status-message success">{{ log.details?.message }}</div>
                     <div class="outline-badge" v-if="log.details?.outline">
-                      {{ log.details.outline.sections?.length || 0 }} sections planned
+                      {{ $t('step4.sectionsPlanned', { count: log.details.outline.sections?.length || 0 }) }}
                     </div>
                   </template>
 
@@ -307,12 +351,12 @@
                   <!-- LLM Response -->
                   <template v-if="log.action === 'llm_response'">
                     <div class="llm-meta">
-                      <span class="meta-tag">Iteration {{ log.details?.iteration }}</span>
+                      <span class="meta-tag">{{ $t('step4.iteration', { n: log.details?.iteration }) }}</span>
                       <span class="meta-tag" :class="{ active: log.details?.has_tool_calls }">
-                        Tools: {{ log.details?.has_tool_calls ? 'Yes' : 'No' }}
+                        {{ $t('step4.toolsFlag', { value: log.details?.has_tool_calls ? $t('common.yes') : $t('common.no') }) }}
                       </span>
                       <span class="meta-tag" :class="{ active: log.details?.has_final_answer, 'final-answer': log.details?.has_final_answer }">
-                        Final: {{ log.details?.has_final_answer ? 'Yes' : 'No' }}
+                        {{ $t('step4.finalFlag', { value: log.details?.has_final_answer ? $t('common.yes') : $t('common.no') }) }}
                       </span>
                     </div>
                     <!-- 当是最终答案时，显示特殊提示 -->
@@ -320,7 +364,7 @@
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="20 6 9 17 4 12"></polyline>
                       </svg>
-                      <span>Section "{{ log.section_title }}" content generated</span>
+                      <span>{{ $t('step4.sectionContentGenerated', { title: log.section_title }) }}</span>
                     </div>
                     <div v-if="expandedLogs.has(log.timestamp) && log.details?.response" class="llm-content">
                       <pre>{{ log.details.response }}</pre>
@@ -334,7 +378,7 @@
                         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                         <polyline points="22 4 12 14.01 9 11.01"></polyline>
                       </svg>
-                      <span>Report Generation Complete</span>
+                      <span>{{ $t('step4.reportGenComplete') }}</span>
                     </div>
                   </template>
                 </div>
@@ -347,17 +391,17 @@
                   <div class="footer-actions">
                     <!-- Tool Call: Show/Hide Params -->
                     <button v-if="log.action === 'tool_call' && log.details?.parameters" class="action-btn" @click.stop="toggleLogExpand(log)">
-                      {{ expandedLogs.has(log.timestamp) ? 'Hide Params' : 'Show Params' }}
+                      {{ expandedLogs.has(log.timestamp) ? $t('step4.hideParams') : $t('step4.showParams') }}
                     </button>
                     
                     <!-- Tool Result: Raw/Structured View -->
                     <button v-if="log.action === 'tool_result'" class="action-btn" @click.stop="toggleRawResult(log.timestamp, $event)">
-                      {{ showRawResult[log.timestamp] ? 'Structured View' : 'Raw Output' }}
+                      {{ showRawResult[log.timestamp] ? $t('step4.structuredView') : $t('step4.rawOutput') }}
                     </button>
                     
                     <!-- LLM Response: Show/Hide Response -->
                     <button v-if="log.action === 'llm_response' && log.details?.response" class="action-btn" @click.stop="toggleLogExpand(log)">
-                      {{ expandedLogs.has(log.timestamp) ? 'Hide Response' : 'Show Response' }}
+                      {{ expandedLogs.has(log.timestamp) ? $t('step4.hideResponse') : $t('step4.showResponse') }}
                     </button>
                   </div>
                 </div>
@@ -368,7 +412,7 @@
           <!-- Empty State -->
           <div v-if="agentLogs.length === 0 && !isComplete" class="workflow-empty">
             <div class="empty-pulse"></div>
-            <span>Waiting for agent activity...</span>
+            <span>{{ $t('step4.waitingAgentActivity') }}</span>
           </div>
         </div>
       </div>
@@ -377,8 +421,8 @@
     <!-- Bottom Console Logs -->
     <div class="console-logs">
       <div class="log-header">
-        <span class="log-title">CONSOLE OUTPUT</span>
-        <span class="log-id">{{ reportId || 'NO_REPORT' }}</span>
+        <span class="log-title">{{ $t('step4.consoleOutput') }}</span>
+        <span class="log-id">{{ reportId || $t('step4.noReport') }}</span>
       </div>
       <div class="log-content" ref="logContent">
         <div class="log-line" v-for="(log, idx) in consoleLogs" :key="idx">
@@ -393,7 +437,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, h, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { getAgentLog, getConsoleLog } from '../api/report'
+import { getAgentLog, getConsoleLog, getIllustration, generateIllustration, illustrationImageUrl, illustrationDownloadUrl, getShare, createShare, deleteShare } from '../api/report'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -425,8 +469,107 @@ const expandedContent = ref(new Set())
 const expandedLogs = ref(new Set())
 const collapsedSections = ref(new Set())
 const isComplete = ref(false)
+
+// ===== Ilustración del informe (parche MX) =====
+const illustration = reactive({ available: false, meta: null, loading: false, error: '' })
+const illustrationSrc = computed(() => (props.reportId && illustration.meta) ? illustrationImageUrl(props.reportId, illustration.meta.created_at) : '')
+const illustrationDownload = computed(() => props.reportId ? illustrationDownloadUrl(props.reportId) : '#')
+
+const loadIllustration = async () => {
+  if (!props.reportId) return
+  try {
+    const res = await getIllustration(props.reportId)
+    illustration.available = !!res.data?.available
+    illustration.meta = res.data?.illustration || null
+  } catch (e) {
+    // Sin ilustración disponible: el bloque no se muestra
+  }
+}
+
+const runIllustration = async (force) => {
+  if (!props.reportId || illustration.loading) return
+  illustration.loading = true
+  illustration.error = ''
+  try {
+    const res = await generateIllustration(props.reportId, force)
+    illustration.meta = res.data || null
+    emit('add-log', t('step4.illustrationDone'))
+  } catch (e) {
+    illustration.error = e.message || t('common.unknownError')
+  } finally {
+    illustration.loading = false
+  }
+}
+
+watch(isComplete, (done) => { if (done) { loadIllustration(); loadShare() } })
+
+// ===== Publicar y compartir (parche MX) =====
+const share = reactive({ data: null, loading: false, error: '', copied: false })
+const whatsappHref = computed(() => {
+  if (!share.data) return '#'
+  const text = [share.data.titular, share.data.whatsapp, share.data.url].filter(Boolean).join('\n\n')
+  return 'https://wa.me/?text=' + encodeURIComponent(text)
+})
+const loadShare = async () => {
+  if (!props.reportId) return
+  try { const res = await getShare(props.reportId); share.data = res.data || null } catch (e) { /* sin publicación */ }
+}
+const publishShare = async () => {
+  if (!props.reportId || share.loading) return
+  share.loading = true; share.error = ''
+  try {
+    const res = await createShare(props.reportId)
+    share.data = res.data || null
+    emit('add-log', t('step4.sharePublished'))
+  } catch (e) { share.error = e.message || t('common.unknownError') } finally { share.loading = false }
+}
+const unpublishShare = async () => {
+  if (!props.reportId || share.loading) return
+  share.loading = true; share.error = ''
+  try { await deleteShare(props.reportId); share.data = null } catch (e) { share.error = e.message || t('common.unknownError') } finally { share.loading = false }
+}
+const copyShareLink = async () => {
+  if (!share.data) return
+  try { await navigator.clipboard.writeText(share.data.url) } catch (e) {
+    const ta = document.createElement('textarea'); ta.value = share.data.url; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove()
+  }
+  share.copied = true; setTimeout(() => { share.copied = false }, 2000)
+}
+onMounted(() => { if (props.reportId) { loadIllustration(); loadShare() } })
+watch(() => props.reportId, () => { illustration.meta = null; illustration.error = ''; if (isComplete.value) loadIllustration() })
 const startTime = ref(null)
 const leftPanel = ref(null)
+
+// Posición de lectura (parche MX): iPhone recarga la pestaña al volver de otra app; se guarda el scroll
+// del informe y se restaura cuando termina de cargar. En celular el contenedor que se desplaza es el padre.
+const _scrollKey = () => 'mf:scroll:' + (props.reportId || '')
+const _scroller = () => {
+  const el = leftPanel.value
+  if (!el) return null
+  return window.matchMedia('(max-width: 768px)').matches ? el.parentElement : el
+}
+let _scrollSaveTimer = null
+const _onReportScroll = (e) => {
+  clearTimeout(_scrollSaveTimer)
+  _scrollSaveTimer = setTimeout(() => { try { sessionStorage.setItem(_scrollKey(), String(Math.round(e.target.scrollTop))) } catch (err) {} }, 250)
+}
+let _scrollBound = null
+const _bindScrollMemory = () => {
+  const sc = _scroller()
+  if (!sc || _scrollBound === sc) return
+  if (_scrollBound) _scrollBound.removeEventListener('scroll', _onReportScroll)
+  sc.addEventListener('scroll', _onReportScroll, { passive: true })
+  _scrollBound = sc
+}
+const _restoreScroll = () => {
+  let y = 0
+  try { y = parseInt(sessionStorage.getItem(_scrollKey()) || '0', 10) } catch (err) {}
+  const sc = _scroller()
+  if (sc && y > 0) sc.scrollTop = y
+}
+watch(isComplete, (done) => { if (done) nextTick(() => setTimeout(() => { _restoreScroll(); _bindScrollMemory() }, 300)) })
+onMounted(() => nextTick(_bindScrollMemory))
+onUnmounted(() => { if (_scrollBound) _scrollBound.removeEventListener('scroll', _onReportScroll); clearTimeout(_scrollSaveTimer) })
 const rightPanel = ref(null)
 const logContent = ref(null)
 const showRawResult = reactive({})
@@ -497,39 +640,39 @@ const isLogCollapsed = (log) => {
 // Tool configurations with display names and colors
 const toolConfig = {
   'insight_forge': {
-    name: 'Deep Insight',
+    nameKey: 'step4.toolDeepInsight',
     color: 'purple',
     icon: 'lightbulb' // 灯泡图标 - 代表洞察
   },
   'panorama_search': {
-    name: 'Panorama Search',
+    nameKey: 'step4.toolPanoramaSearch',
     color: 'blue',
     icon: 'globe' // 地球图标 - 代表全景搜索
   },
   'interview_agents': {
-    name: 'Agent Interview',
+    nameKey: 'step4.toolAgentInterview',
     color: 'green',
     icon: 'users' // 用户图标 - 代表对话
   },
   'quick_search': {
-    name: 'Quick Search',
+    nameKey: 'step4.toolQuickSearch',
     color: 'orange',
     icon: 'zap' // 闪电图标 - 代表快速
   },
   'get_graph_statistics': {
-    name: 'Graph Stats',
+    nameKey: 'step4.toolGraphStats',
     color: 'cyan',
     icon: 'chart' // 图表图标 - 代表统计
   },
   'get_entities_by_type': {
-    name: 'Entity Query',
+    nameKey: 'step4.toolEntityQuery',
     color: 'pink',
     icon: 'database' // 数据库图标 - 代表实体
   }
 }
 
 const getToolDisplayName = (toolName) => {
-  return toolConfig[toolName]?.name || toolName
+  return toolConfig[toolName] ? t(toolConfig[toolName].nameKey) : toolName
 }
 
 const getToolColor = (toolName) => {
@@ -975,30 +1118,30 @@ const InsightDisplay = {
     const formatSize = (length) => {
       if (!length) return ''
       if (length >= 1000) {
-        return `${(length / 1000).toFixed(1)}k chars`
+        return t('step4.charsK', { n: (length / 1000).toFixed(1) })
       }
-      return `${length} chars`
+      return t('step4.chars', { n: length })
     }
     
     return () => h('div', { class: 'insight-display' }, [
       // Header Section - like interview header
       h('div', { class: 'insight-header' }, [
         h('div', { class: 'header-main' }, [
-          h('div', { class: 'header-title' }, 'Deep Insight'),
+          h('div', { class: 'header-title' }, t('step4.toolDeepInsight')),
           h('div', { class: 'header-stats' }, [
             h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.stats.facts || props.result.facts.length),
-              h('span', { class: 'stat-label' }, 'Facts')
+              h('span', { class: 'stat-label' }, t('step4.statFacts'))
             ]),
             h('span', { class: 'stat-divider' }, '/'),
             h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.stats.entities || props.result.entities.length),
-              h('span', { class: 'stat-label' }, 'Entities')
+              h('span', { class: 'stat-label' }, t('step4.statEntities'))
             ]),
             h('span', { class: 'stat-divider' }, '/'),
             h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.stats.relationships || props.result.relations.length),
-              h('span', { class: 'stat-label' }, 'Relations')
+              h('span', { class: 'stat-label' }, t('step4.statRelations'))
             ]),
             props.resultLength && h('span', { class: 'stat-divider' }, '·'),
             props.resultLength && h('span', { class: 'stat-size' }, formatSize(props.resultLength))
@@ -1116,7 +1259,7 @@ const InsightDisplay = {
           h('div', { class: 'subqueries-list' },
             props.result.subQueries.map((sq, i) => 
               h('div', { class: 'subquery-item', key: i }, [
-                h('span', { class: 'subquery-number' }, `Q${i + 1}`),
+                h('span', { class: 'subquery-number' }, t('step4.questionBadge', { n: i + 1 })),
                 h('div', { class: 'subquery-text' }, sq)
               ])
             )
@@ -1147,25 +1290,25 @@ const PanoramaDisplay = {
     const formatSize = (length) => {
       if (!length) return ''
       if (length >= 1000) {
-        return `${(length / 1000).toFixed(1)}k chars`
+        return t('step4.charsK', { n: (length / 1000).toFixed(1) })
       }
-      return `${length} chars`
+      return t('step4.chars', { n: length })
     }
     
     return () => h('div', { class: 'panorama-display' }, [
       // Header Section
       h('div', { class: 'panorama-header' }, [
         h('div', { class: 'header-main' }, [
-          h('div', { class: 'header-title' }, 'Panorama Search'),
+          h('div', { class: 'header-title' }, t('step4.toolPanoramaSearch')),
           h('div', { class: 'header-stats' }, [
             h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.stats.nodes),
-              h('span', { class: 'stat-label' }, 'Nodes')
+              h('span', { class: 'stat-label' }, t('step4.statNodes'))
             ]),
             h('span', { class: 'stat-divider' }, '/'),
             h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.stats.edges),
-              h('span', { class: 'stat-label' }, 'Edges')
+              h('span', { class: 'stat-label' }, t('step4.statEdges'))
             ]),
             props.resultLength && h('span', { class: 'stat-divider' }, '·'),
             props.resultLength && h('span', { class: 'stat-size' }, formatSize(props.resultLength))
@@ -1282,9 +1425,9 @@ const InterviewDisplay = {
     const formatSize = (length) => {
       if (!length) return ''
       if (length >= 1000) {
-        return `${(length / 1000).toFixed(1)}k chars`
+        return t('step4.charsK', { n: (length / 1000).toFixed(1) })
       }
-      return `${length} chars`
+      return t('step4.chars', { n: length })
     }
     
     // Clean quote text - remove leading list numbers to avoid double numbering
@@ -1427,16 +1570,16 @@ const InterviewDisplay = {
       // Header Section
       h('div', { class: 'interview-header' }, [
         h('div', { class: 'header-main' }, [
-          h('div', { class: 'header-title' }, 'Agent Interview'),
+          h('div', { class: 'header-title' }, t('step4.toolAgentInterview')),
           h('div', { class: 'header-stats' }, [
             h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.successCount || props.result.interviews.length),
-              h('span', { class: 'stat-label' }, 'Interviewed')
+              h('span', { class: 'stat-label' }, t('step4.statInterviewed'))
             ]),
             props.result.totalCount > 0 && h('span', { class: 'stat-divider' }, '/'),
             props.result.totalCount > 0 && h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.totalCount),
-              h('span', { class: 'stat-label' }, 'Total')
+              h('span', { class: 'stat-label' }, t('step4.statTotal'))
             ]),
             props.resultLength && h('span', { class: 'stat-divider' }, '·'),
             props.resultLength && h('span', { class: 'stat-size' }, formatSize(props.resultLength))
@@ -1453,7 +1596,7 @@ const InterviewDisplay = {
           onClick: () => { activeIndex.value = i }
         }, [
           h('span', { class: 'tab-avatar' }, interview.name ? interview.name.charAt(0) : (i + 1)),
-          h('span', { class: 'tab-name' }, interview.title || interview.name || `Agent ${i + 1}`)
+          h('span', { class: 'tab-name' }, interview.title || interview.name || t('step2.agentLabel', { id: i + 1 }))
         ]))
       ),
       
@@ -1463,7 +1606,7 @@ const InterviewDisplay = {
         h('div', { class: 'agent-profile' }, [
           h('div', { class: 'profile-avatar' }, props.result.interviews[activeIndex.value]?.name?.charAt(0) || 'A'),
           h('div', { class: 'profile-info' }, [
-            h('div', { class: 'profile-name' }, props.result.interviews[activeIndex.value]?.name || 'Agent'),
+            h('div', { class: 'profile-name' }, props.result.interviews[activeIndex.value]?.name || t('step4.agentFallback')),
             h('div', { class: 'profile-role' }, props.result.interviews[activeIndex.value]?.role || ''),
             props.result.interviews[activeIndex.value]?.bio && h('div', { class: 'profile-bio' }, props.result.interviews[activeIndex.value].bio)
           ])
@@ -1471,7 +1614,7 @@ const InterviewDisplay = {
         
         // Selection Reason - 选择理由
         props.result.interviews[activeIndex.value]?.selectionReason && h('div', { class: 'selection-reason' }, [
-          h('div', { class: 'reason-label' }, '选择理由'),
+          h('div', { class: 'reason-label' }, t('step4.selectionReason')),
           h('div', { class: 'reason-content' }, props.result.interviews[activeIndex.value].selectionReason)
         ]),
         
@@ -1479,7 +1622,7 @@ const InterviewDisplay = {
         h('div', { class: 'qa-thread' }, 
           (props.result.interviews[activeIndex.value]?.questions?.length > 0 
             ? props.result.interviews[activeIndex.value].questions 
-            : [props.result.interviews[activeIndex.value]?.question || 'No question available']
+            : [props.result.interviews[activeIndex.value]?.question || t('step4.noQuestion')]
           ).map((question, qIdx) => {
             const interview = props.result.interviews[activeIndex.value]
             const currentPlatform = getPlatformTab(activeIndex.value, qIdx)
@@ -1492,19 +1635,19 @@ const InterviewDisplay = {
             return h('div', { class: 'qa-pair', key: qIdx }, [
               // Question Block
               h('div', { class: 'qa-question' }, [
-                h('div', { class: 'qa-badge q-badge' }, `Q${qIdx + 1}`),
+                h('div', { class: 'qa-badge q-badge' }, t('step4.questionBadge', { n: qIdx + 1 })),
                 h('div', { class: 'qa-content' }, [
-                  h('div', { class: 'qa-sender' }, 'Interviewer'),
+                  h('div', { class: 'qa-sender' }, t('step4.interviewer')),
                   h('div', { class: 'qa-text' }, question)
                 ])
               ]),
 
               // Answer Block
               answerText && h('div', { class: ['qa-answer', { 'answer-placeholder': isPlaceholder }] }, [
-                h('div', { class: 'qa-badge a-badge' }, `A${qIdx + 1}`),
+                h('div', { class: 'qa-badge a-badge' }, t('step4.answerBadge', { n: qIdx + 1 })),
                 h('div', { class: 'qa-content' }, [
                   h('div', { class: 'qa-answer-header' }, [
-                    h('div', { class: 'qa-sender' }, interview?.name || 'Agent'),
+                    h('div', { class: 'qa-sender' }, interview?.name || t('step4.agentFallback')),
                     // 双平台切换按钮（仅在有真实双平台回答时显示）
                     hasDualPlatform && h('div', { class: 'platform-switch' }, [
                       h('button', {
@@ -1532,7 +1675,7 @@ const InterviewDisplay = {
                   h('div', {
                     class: ['qa-text', 'answer-text', { 'placeholder-text': isPlaceholder }],
                     innerHTML: isPlaceholder
-                      ? answerText
+                      ? t('step4.noPlatformReply')
                       : formatAnswer(answerText, isExpanded)
                           .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                           .replace(/\n/g, '<br>')
@@ -1541,7 +1684,7 @@ const InterviewDisplay = {
                   !isPlaceholder && answerText.length > 400 && h('button', {
                     class: 'expand-answer-btn',
                     onClick: () => toggleAnswer(expandKey)
-                  }, isExpanded ? 'Show Less' : 'Show More')
+                  }, isExpanded ? t('step4.showLess') : t('step4.showMore'))
                 ])
               ])
             ])
@@ -1550,7 +1693,7 @@ const InterviewDisplay = {
         
         // Key Quotes Section
         props.result.interviews[activeIndex.value]?.quotes?.length > 0 && h('div', { class: 'quotes-section' }, [
-          h('div', { class: 'quotes-header' }, 'Key Quotes'),
+          h('div', { class: 'quotes-header' }, t('step4.keyQuotes')),
           h('div', { class: 'quotes-list' },
             props.result.interviews[activeIndex.value].quotes.slice(0, 3).map((quote, qi) => {
               const cleanedQuote = cleanQuoteText(quote)
@@ -1567,7 +1710,7 @@ const InterviewDisplay = {
 
       // Summary Section (Collapsible)
       props.result.summary && h('div', { class: 'summary-section' }, [
-        h('div', { class: 'summary-header' }, 'Interview Summary'),
+        h('div', { class: 'summary-header' }, t('step4.interviewSummary')),
         h('div', { 
           class: 'summary-content',
           innerHTML: renderMarkdown(props.result.summary.length > 500 ? props.result.summary.substring(0, 500) + '...' : props.result.summary)
@@ -1595,20 +1738,20 @@ const QuickSearchDisplay = {
     const formatSize = (length) => {
       if (!length) return ''
       if (length >= 1000) {
-        return `${(length / 1000).toFixed(1)}k chars`
+        return t('step4.charsK', { n: (length / 1000).toFixed(1) })
       }
-      return `${length} chars`
+      return t('step4.chars', { n: length })
     }
     
     return () => h('div', { class: 'quick-search-display' }, [
       // Header Section
       h('div', { class: 'quicksearch-header' }, [
         h('div', { class: 'header-main' }, [
-          h('div', { class: 'header-title' }, 'Quick Search'),
+          h('div', { class: 'header-title' }, t('step4.toolQuickSearch')),
           h('div', { class: 'header-stats' }, [
             h('span', { class: 'stat-item' }, [
               h('span', { class: 'stat-value' }, props.result.count || props.result.facts.length),
-              h('span', { class: 'stat-label' }, 'Results')
+              h('span', { class: 'stat-label' }, t('step4.statResults'))
             ]),
             props.resultLength && h('span', { class: 'stat-divider' }, '·'),
             props.resultLength && h('span', { class: 'stat-size' }, formatSize(props.resultLength))
@@ -1713,9 +1856,9 @@ const statusClass = computed(() => {
 })
 
 const statusText = computed(() => {
-  if (isComplete.value) return 'Completed'
-  if (agentLogs.value.length > 0) return 'Generating...'
-  return 'Waiting'
+  if (isComplete.value) return t('common.completed')
+  if (agentLogs.value.length > 0) return t('step4.statusGenerating')
+  return t('step4.statusWaiting')
 })
 
 const totalSections = computed(() => {
@@ -1781,7 +1924,7 @@ const activeStep = computed(() => {
   if (doneSteps.length > 0) return doneSteps[doneSteps.length - 1]
   
   // 否则返回第一个步骤
-  return steps[0] || { noLabel: '--', title: '等待开始', status: 'todo', meta: '' }
+  return steps[0] || { noLabel: '--', title: t('step4.waitingToStart'), status: 'todo', meta: '' }
 })
 
 const workflowSteps = computed(() => {
@@ -1792,9 +1935,9 @@ const workflowSteps = computed(() => {
   steps.push({
     key: 'planning',
     noLabel: 'PL',
-    title: 'Planning / Outline',
+    title: t('step4.wfPlanning'),
     status: planningStatus,
-    meta: planningStatus === 'active' ? 'IN PROGRESS' : ''
+    meta: planningStatus === 'active' ? t('step4.wfInProgress') : ''
   })
 
   // Sections (if outline exists)
@@ -1810,7 +1953,7 @@ const workflowSteps = computed(() => {
       noLabel: String(idx).padStart(2, '0'),
       title: section.title,
       status,
-      meta: status === 'active' ? 'IN PROGRESS' : ''
+      meta: status === 'active' ? t('step4.wfInProgress') : ''
     })
   })
 
@@ -1819,9 +1962,9 @@ const workflowSteps = computed(() => {
   steps.push({
     key: 'complete',
     noLabel: 'OK',
-    title: 'Complete',
+    title: t('step4.wfComplete'),
     status: completeStatus,
-    meta: completeStatus === 'active' ? 'FINALIZING' : ''
+    meta: completeStatus === 'active' ? t('step4.wfFinalizing') : ''
   })
 
   return steps
@@ -1861,8 +2004,8 @@ const formatParams = (params) => {
 
 const formatResultSize = (length) => {
   if (!length) return ''
-  if (length < 1000) return `${length} chars`
-  return `${(length / 1000).toFixed(1)}k chars`
+  if (length < 1000) return t('step4.chars', { n: length })
+  return t('step4.charsK', { n: (length / 1000).toFixed(1) })
 }
 
 const truncateText = (text, maxLen) => {
@@ -1871,7 +2014,19 @@ const truncateText = (text, maxLen) => {
   return text.substring(0, maxLen) + '...'
 }
 
+// Caché de Markdown ya convertido (parche MX): Vue vuelve a llamar esta función en cada redibujo
+// (abrir o cerrar un acordeón redibuja la lista); con la caché cada texto se convierte una sola vez.
+const _markdownCache = new Map()
 const renderMarkdown = (content) => {
+  if (typeof content !== 'string') return _renderMarkdownRaw(content)
+  const hit = _markdownCache.get(content)
+  if (hit !== undefined) return hit
+  const html = _renderMarkdownRaw(content)
+  if (_markdownCache.size > 500) _markdownCache.clear()
+  _markdownCache.set(content, html)
+  return html
+}
+const _renderMarkdownRaw = (content) => {
   if (!content) return ''
   
   // 去掉开头的二级标题（## xxx），因为章节标题已在外层显示
@@ -1996,18 +2151,18 @@ const getConnectorClass = (log, idx, total) => {
 
 const getActionLabel = (action) => {
   const labels = {
-    'report_start': 'Report Started',
-    'planning_start': 'Planning',
-    'planning_complete': 'Plan Complete',
-    'section_start': 'Section Start',
-    'section_content': 'Content Ready',
-    'section_complete': 'Section Done',
-    'tool_call': 'Tool Call',
-    'tool_result': 'Tool Result',
-    'llm_response': 'LLM Response',
-    'report_complete': 'Complete'
+    'report_start': 'step4.actReportStarted',
+    'planning_start': 'step4.actPlanning',
+    'planning_complete': 'step4.actPlanComplete',
+    'section_start': 'step4.actSectionStart',
+    'section_content': 'step4.actContentReady',
+    'section_complete': 'step4.actSectionDone',
+    'tool_call': 'step4.actToolCall',
+    'tool_result': 'step4.actToolResult',
+    'llm_response': 'step4.actLlmResponse',
+    'report_complete': 'step4.wfComplete'
   }
-  return labels[action] || action
+  return labels[action] ? t(labels[action]) : action
 }
 
 const getLogLevelClass = (log) => {
@@ -2178,7 +2333,7 @@ const stopPolling = () => {
 // Lifecycle
 onMounted(() => {
   if (props.reportId) {
-    addLog(`Report Agent initialized: ${props.reportId}`)
+    addLog(t('step4.logAgentInit', { id: props.reportId }))
     startPolling()
   }
 })
@@ -5159,4 +5314,49 @@ watch(() => props.reportId, (newId) => {
 html[lang="en"] .report-header-block .main-title {
   font-size: 28px;
 }
+
+/* ===== Ilustración del informe (parche MX) ===== */
+.illustration-block {
+  margin: 12px 20px 0 20px;
+  padding: 14px 16px 16px;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  background: #FAFAFA;
+}
+.illustration-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+.illustration-title { font-size: 13px; font-weight: 600; color: #1F2937; }
+.illustration-hint { font-size: 12px; color: #6B7280; }
+.illustration-figure { margin: 0 0 12px 0; }
+.illustration-figure img { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid #E5E7EB; background: #fff; }
+.illustration-figure figcaption { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #4B5563; }
+.illustration-error { margin: 0 0 10px 0; font-size: 12px; color: #B42318; }
+.illustration-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.illustration-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 14px; font-size: 13px; font-weight: 600;
+  color: #FFFFFF; background: #1F2937; border: none; border-radius: 6px;
+  cursor: pointer; text-decoration: none; transition: background 0.15s ease;
+}
+.illustration-btn:hover:not(:disabled) { background: #111827; }
+.illustration-btn:disabled { opacity: 0.6; cursor: wait; }
+.illustration-btn.secondary { color: #1F2937; background: #FFFFFF; border: 1px solid #D1D5DB; }
+.illustration-btn.secondary:hover { background: #F3F4F6; }
+.illustration-spinner {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.35); border-top-color: #FFFFFF;
+  animation: illustration-spin 0.8s linear infinite;
+}
+@keyframes illustration-spin { to { transform: rotate(360deg); } }
+
+/* Ilustración bajo el título (parche MX) */
+.report-hero-figure { margin: 16px 0 20px 0; }
+.report-hero-figure img { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid #E5E7EB; }
+.report-hero-figure figcaption { margin-top: 8px; font-size: 13px; line-height: 1.5; color: #6B7280; font-style: italic; }
+
+/* Publicar y compartir (parche MX) */
+.share-block { margin: 12px 20px 0 20px; padding: 14px 16px 16px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; }
+.share-link { display: block; margin: 0 0 12px 0; font: 12px 'JetBrains Mono', monospace; color: #0f172a; word-break: break-all; text-decoration: underline; text-underline-offset: 3px; }
+.illustration-btn.whatsapp { background: #128C7E; }
+.illustration-btn.whatsapp:hover { background: #0E7468; }
+.illustration-btn.secondary.danger { color: #B42318; border-color: #F3C4C0; }
 </style>

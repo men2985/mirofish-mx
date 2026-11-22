@@ -8,7 +8,7 @@
           <!-- Report Header -->
           <div class="report-header-block">
             <div class="report-meta">
-              <span class="report-tag">Prediction Report</span>
+              <span class="report-tag">{{ $t('step4.predictionReport') }}</span>
               <span class="report-id">ID: {{ reportId || 'REF-2024-X92' }}</span>
             </div>
             <h1 class="main-title">{{ reportOutline.title }}</h1>
@@ -72,7 +72,7 @@
             <div class="waiting-ring"></div>
             <div class="waiting-ring"></div>
           </div>
-          <span class="waiting-text">Waiting for Report Agent...</span>
+          <span class="waiting-text">{{ $t('step4.waitingForReportAgent') }}</span>
         </div>
       </div>
 
@@ -266,7 +266,7 @@
               <div class="message-content">
                 <div class="message-header">
                   <span class="sender-name">
-                    {{ msg.role === 'user' ? 'You' : (chatTarget === 'report_agent' ? 'Report Agent' : (selectedAgent?.username || 'Agent')) }}
+                    {{ msg.role === 'user' ? $t('step5.senderYou') : (chatTarget === 'report_agent' ? $t('step5.senderReportAgent') : (selectedAgent?.username || $t('step4.agentFallback'))) }}
                   </span>
                   <span class="message-time">{{ formatTime(msg.timestamp) }}</span>
                 </div>
@@ -554,7 +554,19 @@ const formatTime = (timestamp) => {
   }
 }
 
+// Caché de Markdown ya convertido (parche MX): Vue vuelve a llamar esta función en cada redibujo
+// (abrir o cerrar un acordeón redibuja la lista); con la caché cada texto se convierte una sola vez.
+const _markdownCache = new Map()
 const renderMarkdown = (content) => {
+  if (typeof content !== 'string') return _renderMarkdownRaw(content)
+  const hit = _markdownCache.get(content)
+  if (hit !== undefined) return hit
+  const html = _renderMarkdownRaw(content)
+  if (_markdownCache.size > 500) _markdownCache.clear()
+  _markdownCache.set(content, html)
+  return html
+}
+const _renderMarkdownRaw = (content) => {
   if (!content) return ''
   
   let processedContent = content.replace(/^##\s+.+\n+/, '')
@@ -722,9 +734,9 @@ const sendToAgent = async (message) => {
     const historyContext = chatHistory.value
       .slice(0, -1)
       .slice(-6)
-      .map(msg => `${msg.role === 'user' ? '提问者' : '你'}：${msg.content}`)
+      .map(msg => t('step5.promptHistoryLine', { role: msg.role === 'user' ? t('step5.promptAsker') : t('step5.promptYou'), content: msg.content }))
       .join('\n')
-    prompt = `以下是我们之前的对话：\n${historyContext}\n\n现在我的新问题是：${message}`
+    prompt = t('step5.promptWithHistory', { history: historyContext, message })
   }
   
   const res = await interviewAgents({
@@ -852,7 +864,7 @@ const submitSurvey = async () => {
         
         surveyResultsList.push({
           agent_id: agentIdx,
-          agent_name: agent?.username || `Agent ${agentIdx}`,
+          agent_name: agent?.username || t('step2.agentLabel', { id: agentIdx }),
           profession: agent?.profession,
           question: surveyQuestion.value.trim(),
           answer: responseContent

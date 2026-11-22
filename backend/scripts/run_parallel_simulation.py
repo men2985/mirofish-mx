@@ -161,6 +161,7 @@ try:
     from camel.models import ModelFactory
     from camel.types import ModelPlatformType
     import oasis
+    import oasis_memory_patch  # noqa: F401  (fork MX: lotes pequeños en el recomendador BERT)
     from oasis import (
         ActionType,
         LLMAction,

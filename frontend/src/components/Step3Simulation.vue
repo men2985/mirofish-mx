@@ -1,5 +1,9 @@
 <template>
   <div class="simulation-panel">
+    <div v-if="esperaConfirmacion" class="confirm-banner" role="status">
+      <span>La simulación espera tu confirmación.</span>
+      <button type="button" @click="pedirInicio">Iniciar</button>
+    </div>
     <!-- Top Control Bar -->
     <div class="control-bar">
       <div class="status-group">
@@ -9,7 +13,7 @@
             <svg class="platform-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
             </svg>
-            <span class="platform-name">Info Plaza</span>
+            <span class="platform-name">{{ $t('step3.platformPlaza') }}</span>
             <span v-if="runStatus.twitter_completed" class="status-badge">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3">
                 <polyline points="20 6 9 17 4 12"></polyline>
@@ -18,28 +22,28 @@
           </div>
           <div class="platform-stats">
             <span class="stat">
-              <span class="stat-label">ROUND</span>
+              <span class="stat-label">{{ $t('step3.statRound') }}</span>
               <span class="stat-value mono">{{ runStatus.twitter_current_round || 0 }}<span class="stat-total">/{{ runStatus.total_rounds || maxRounds || '-' }}</span></span>
             </span>
             <span class="stat">
-              <span class="stat-label">TIME</span>
+              <span class="stat-label">{{ $t('step3.statTime') }}</span>
               <span class="stat-value mono">{{ twitterElapsedTime }}</span>
             </span>
             <span class="stat">
-              <span class="stat-label">ACTS</span>
+              <span class="stat-label">{{ $t('step3.statActs') }}</span>
               <span class="stat-value mono">{{ runStatus.twitter_actions_count || 0 }}</span>
             </span>
           </div>
           <!-- 可用动作提示 -->
           <div class="actions-tooltip">
-            <div class="tooltip-title">Available Actions</div>
+            <div class="tooltip-title">{{ $t('step3.availableActions') }}</div>
             <div class="tooltip-actions">
-              <span class="tooltip-action">POST</span>
-              <span class="tooltip-action">LIKE</span>
-              <span class="tooltip-action">REPOST</span>
-              <span class="tooltip-action">QUOTE</span>
-              <span class="tooltip-action">FOLLOW</span>
-              <span class="tooltip-action">IDLE</span>
+              <span class="tooltip-action">{{ $t('step3.actPost') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actLike') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actRepost') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actQuote') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actFollow') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actIdle') }}</span>
             </div>
           </div>
         </div>
@@ -50,7 +54,7 @@
             <svg class="platform-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
             </svg>
-            <span class="platform-name">Topic Community</span>
+            <span class="platform-name">{{ $t('step3.platformCommunity') }}</span>
             <span v-if="runStatus.reddit_completed" class="status-badge">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3">
                 <polyline points="20 6 9 17 4 12"></polyline>
@@ -59,32 +63,32 @@
           </div>
           <div class="platform-stats">
             <span class="stat">
-              <span class="stat-label">ROUND</span>
+              <span class="stat-label">{{ $t('step3.statRound') }}</span>
               <span class="stat-value mono">{{ runStatus.reddit_current_round || 0 }}<span class="stat-total">/{{ runStatus.total_rounds || maxRounds || '-' }}</span></span>
             </span>
             <span class="stat">
-              <span class="stat-label">TIME</span>
+              <span class="stat-label">{{ $t('step3.statTime') }}</span>
               <span class="stat-value mono">{{ redditElapsedTime }}</span>
             </span>
             <span class="stat">
-              <span class="stat-label">ACTS</span>
+              <span class="stat-label">{{ $t('step3.statActs') }}</span>
               <span class="stat-value mono">{{ runStatus.reddit_actions_count || 0 }}</span>
             </span>
           </div>
           <!-- 可用动作提示 -->
           <div class="actions-tooltip">
-            <div class="tooltip-title">Available Actions</div>
+            <div class="tooltip-title">{{ $t('step3.availableActions') }}</div>
             <div class="tooltip-actions">
-              <span class="tooltip-action">POST</span>
-              <span class="tooltip-action">COMMENT</span>
-              <span class="tooltip-action">LIKE</span>
-              <span class="tooltip-action">DISLIKE</span>
-              <span class="tooltip-action">SEARCH</span>
-              <span class="tooltip-action">TREND</span>
-              <span class="tooltip-action">FOLLOW</span>
-              <span class="tooltip-action">MUTE</span>
-              <span class="tooltip-action">REFRESH</span>
-              <span class="tooltip-action">IDLE</span>
+              <span class="tooltip-action">{{ $t('step3.actPost') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actComment') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actLike') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actDislike') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actSearch') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actTrend') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actFollow') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actMute') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actRefresh') }}</span>
+              <span class="tooltip-action">{{ $t('step3.actIdle') }}</span>
             </div>
           </div>
         </div>
@@ -108,7 +112,7 @@
       <!-- Timeline Header -->
       <div class="timeline-header" v-if="allActions.length > 0">
         <div class="timeline-stats">
-          <span class="total-count">TOTAL EVENTS: <span class="mono">{{ allActions.length }}</span></span>
+          <span class="total-count">{{ $t('step3.totalEvents') }} <span class="mono">{{ allActions.length }}</span></span>
           <span class="platform-breakdown">
             <span class="breakdown-item twitter">
               <svg class="mini-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
@@ -170,7 +174,7 @@
                   <div v-if="action.action_args?.original_content" class="quoted-block">
                     <div class="quote-header">
                       <svg class="icon-small" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-                      <span class="quote-label">@{{ action.action_args.original_author_name || 'User' }}</span>
+                      <span class="quote-label">@{{ action.action_args.original_author_name || $t('step3.userFallback') }}</span>
                     </div>
                     <div class="quote-text">
                       {{ truncateContent(action.action_args.original_content, 150) }}
@@ -182,7 +186,7 @@
                 <template v-if="action.action_type === 'REPOST'">
                   <div class="repost-info">
                     <svg class="icon-small" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-                    <span class="repost-label">Reposted from @{{ action.action_args?.original_author_name || 'User' }}</span>
+                    <span class="repost-label">{{ $t('step3.repostedFrom', { user: action.action_args?.original_author_name || $t('step3.userFallback') }) }}</span>
                   </div>
                   <div v-if="action.action_args?.original_content" class="repost-content">
                     {{ truncateContent(action.action_args.original_content, 200) }}
@@ -193,7 +197,7 @@
                 <template v-if="action.action_type === 'LIKE_POST'">
                   <div class="like-info">
                     <svg class="icon-small filled" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                    <span class="like-label">Liked @{{ action.action_args?.post_author_name || 'User' }}'s post</span>
+                    <span class="like-label">{{ $t('step3.likedPost', { user: action.action_args?.post_author_name || $t('step3.userFallback') }) }}</span>
                   </div>
                   <div v-if="action.action_args?.post_content" class="liked-content">
                     "{{ truncateContent(action.action_args.post_content, 120) }}"
@@ -207,7 +211,7 @@
                   </div>
                   <div v-if="action.action_args?.post_id" class="comment-context">
                     <svg class="icon-small" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                    <span>Reply to post #{{ action.action_args.post_id }}</span>
+                    <span>{{ $t('step3.replyToPost', { id: action.action_args.post_id }) }}</span>
                   </div>
                 </template>
 
@@ -215,7 +219,7 @@
                 <template v-if="action.action_type === 'SEARCH_POSTS'">
                   <div class="search-info">
                     <svg class="icon-small" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <span class="search-label">Search Query:</span>
+                    <span class="search-label">{{ $t('step3.searchQuery') }}</span>
                     <span class="search-query">"{{ action.action_args?.query || '' }}"</span>
                   </div>
                 </template>
@@ -224,7 +228,7 @@
                 <template v-if="action.action_type === 'FOLLOW'">
                   <div class="follow-info">
                     <svg class="icon-small" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
-                    <span class="follow-label">Followed @{{ action.action_args?.target_user || action.action_args?.user_id || 'User' }}</span>
+                    <span class="follow-label">{{ $t('step3.followed', { user: action.action_args?.target_user || action.action_args?.user_id || $t('step3.userFallback') }) }}</span>
                   </div>
                 </template>
 
@@ -233,7 +237,7 @@
                   <div class="vote-info">
                     <svg v-if="action.action_type === 'UPVOTE_POST'" class="icon-small" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>
                     <svg v-else class="icon-small" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    <span class="vote-label">{{ action.action_type === 'UPVOTE_POST' ? 'Upvoted' : 'Downvoted' }} Post</span>
+                    <span class="vote-label">{{ action.action_type === 'UPVOTE_POST' ? $t('step3.upvotedPost') : $t('step3.downvotedPost') }}</span>
                   </div>
                   <div v-if="action.action_args?.post_content" class="voted-content">
                     "{{ truncateContent(action.action_args.post_content, 120) }}"
@@ -244,7 +248,7 @@
                 <template v-if="action.action_type === 'DO_NOTHING'">
                   <div class="idle-info">
                     <svg class="icon-small" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                    <span class="idle-label">Action Skipped</span>
+                    <span class="idle-label">{{ $t('step3.actionSkipped') }}</span>
                   </div>
                 </template>
 
@@ -264,7 +268,7 @@
 
         <div v-if="allActions.length === 0" class="waiting-state">
           <div class="pulse-ring"></div>
-          <span>Waiting for agent actions...</span>
+          <span>{{ $t('step3.waitingForActions') }}</span>
         </div>
       </div>
     </div>
@@ -272,8 +276,8 @@
     <!-- Bottom Info / Logs -->
     <div class="system-logs">
       <div class="log-header">
-        <span class="log-title">SIMULATION MONITOR</span>
-        <span class="log-id">{{ simulationId || 'NO_SIMULATION' }}</span>
+        <span class="log-title">{{ $t('step3.simulationMonitor') }}</span>
+        <span class="log-id">{{ simulationId || $t('common.noSimulation') }}</span>
       </div>
       <div class="log-content" ref="logContent">
         <div class="log-line" v-for="(log, idx) in systemLogs" :key="idx">
@@ -293,8 +297,11 @@ import {
   startSimulation,
   stopSimulation,
   getRunStatus,
-  getRunStatusDetail
+  getRunStatusDetail,
+  getEstimado,
+  closeSimulationEnv
 } from '../api/simulation'
+import { confirmarGasto, isAuto, tomarConfirmado } from '../api/confirmar'
 import { generateReport } from '../api/report'
 
 const { t } = useI18n()
@@ -379,6 +386,43 @@ const resetAllState = () => {
   stopPolling()  // 停止之前可能存在的轮询
 }
 
+// ---- Confirmación + modo automático (parche MX) ----
+const esperaConfirmacion = ref(false)
+let cerrandoAuto = false
+
+const pedirInicio = async () => {
+  let est = null
+  try { est = (await getEstimado(props.simulationId, props.maxRounds)).data } catch (e) { /* sin estimación */ }
+  const c = est?.creditos || {}
+  const r = await confirmarGasto({
+    titulo: 'Iniciar la simulación',
+    detalle: `${est?.agentes || ''} agentes, ${est?.rondas || props.maxRounds || ''} rondas (aprox. ${est?.minutos_simulacion || 1} min).`,
+    lineas: [{ label: 'Simulación', creditos: c.simulacion }],
+    cuenta: est?.cuenta,
+    boton: 'Iniciar simulación',
+  })
+  if (!r.ok) {
+    esperaConfirmacion.value = true
+    addLog('Simulación en espera: confírmala para iniciar.')
+    return
+  }
+  esperaConfirmacion.value = false
+  doStartSimulation()
+}
+
+// El informe exige que el entorno de la simulación esté cerrado (queda esperando entrevistas tras las rondas)
+const cerrarEntornoYEsperar = async () => {
+  try { await closeSimulationEnv({ simulation_id: props.simulationId, timeout: 30 }) } catch (e) { /* ya cerrado */ }
+  for (let i = 0; i < 30; i++) {
+    try {
+      const st = (await getRunStatus(props.simulationId)).data || {}
+      if (['completed', 'stopped', 'failed'].includes(st.runner_status)) return st.runner_status
+    } catch (e) { /* reintenta */ }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  return null
+}
+
 // 启动模拟
 const doStartSimulation = async () => {
   if (!props.simulationId) {
@@ -424,7 +468,7 @@ const doStartSimulation = async () => {
       startStatusPolling()
       startDetailPolling()
     } else {
-      startError.value = res.error || '启动失败'
+      startError.value = res.error || t('step3.startFailedDefault')
       addLog(t('log.startFailed', { error: res.error || t('common.unknownError') }))
       emit('update-status', 'error')
     }
@@ -502,15 +546,24 @@ const fetchRunStatus = async () => {
       
       // 分别检测各平台的轮次变化并输出日志
       if (data.twitter_current_round > prevTwitterRound.value) {
-        addLog(`[Plaza] R${data.twitter_current_round}/${data.total_rounds} | T:${data.twitter_simulated_hours || 0}h | A:${data.twitter_actions_count}`)
+        addLog(`[${t('step3.logPlazaTag')}] R${data.twitter_current_round}/${data.total_rounds} | T:${data.twitter_simulated_hours || 0}h | A:${data.twitter_actions_count}`)
         prevTwitterRound.value = data.twitter_current_round
       }
       
       if (data.reddit_current_round > prevRedditRound.value) {
-        addLog(`[Community] R${data.reddit_current_round}/${data.total_rounds} | T:${data.reddit_simulated_hours || 0}h | A:${data.reddit_actions_count}`)
+        addLog(`[${t('step3.logCommunityTag')}] R${data.reddit_current_round}/${data.total_rounds} | T:${data.reddit_simulated_hours || 0}h | A:${data.reddit_actions_count}`)
         prevRedditRound.value = data.reddit_current_round
       }
       
+      // Modo automático: al terminar las rondas de ambas plataformas se cierra el entorno (sigue "corriendo" para
+      // entrevistas) y, al quedar completada, se pide el informe
+      if (isAuto(props.simulationId) && !cerrandoAuto && data.twitter_completed && data.reddit_completed &&
+          data.runner_status === 'running') {
+        cerrandoAuto = true
+        addLog('Modo automático: rondas terminadas, cerrando el entorno para generar el informe…')
+        closeSimulationEnv({ simulation_id: props.simulationId, timeout: 30 }).catch(() => {})
+      }
+
       // 检测模拟是否已完成（通过 runner_status 或平台完成状态判断）
       const isCompleted = data.runner_status === 'completed' || data.runner_status === 'stopped'
       const isFailed = data.runner_status === 'failed'
@@ -527,6 +580,10 @@ const fetchRunStatus = async () => {
         phase.value = 2
         stopPolling()
         emit('update-status', 'completed')
+        if (isAuto(props.simulationId)) {
+          addLog('Modo automático: generando el informe…')
+          handleNextStep(true)
+        }
       }
     }
   } catch (err) {
@@ -595,19 +652,19 @@ const fetchRunStatusDetail = async () => {
 // Helpers
 const getActionTypeLabel = (type) => {
   const labels = {
-    'CREATE_POST': 'POST',
-    'REPOST': 'REPOST',
-    'LIKE_POST': 'LIKE',
-    'CREATE_COMMENT': 'COMMENT',
-    'LIKE_COMMENT': 'LIKE',
-    'DO_NOTHING': 'IDLE',
-    'FOLLOW': 'FOLLOW',
-    'SEARCH_POSTS': 'SEARCH',
-    'QUOTE_POST': 'QUOTE',
-    'UPVOTE_POST': 'UPVOTE',
-    'DOWNVOTE_POST': 'DOWNVOTE'
+    'CREATE_POST': 'step3.actPost',
+    'REPOST': 'step3.actRepost',
+    'LIKE_POST': 'step3.actLike',
+    'CREATE_COMMENT': 'step3.actComment',
+    'LIKE_COMMENT': 'step3.actLike',
+    'DO_NOTHING': 'step3.actIdle',
+    'FOLLOW': 'step3.actFollow',
+    'SEARCH_POSTS': 'step3.actSearch',
+    'QUOTE_POST': 'step3.actQuote',
+    'UPVOTE_POST': 'step3.actUpvote',
+    'DOWNVOTE_POST': 'step3.actDownvote'
   }
-  return labels[type] || type || 'UNKNOWN'
+  return labels[type] ? t(labels[type]) : (type || t('step3.actUnknown'))
 }
 
 const getActionTypeClass = (type) => {
@@ -642,10 +699,22 @@ const formatActionTime = (timestamp) => {
   }
 }
 
-const handleNextStep = async () => {
+const handleNextStep = async (automatico = false) => {
   if (!props.simulationId) {
     addLog(t('log.errorMissingSimId'))
     return
+  }
+  if (automatico !== true && !isGeneratingReport.value) {
+    let est = null
+    try { est = (await getEstimado(props.simulationId)).data } catch (e) { /* sin estimación */ }
+    const r = await confirmarGasto({
+      titulo: 'Generar el informe',
+      detalle: 'El agente del informe revisa la simulación y redacta las predicciones (con razonamiento).',
+      lineas: [{ label: 'Informe', creditos: est?.creditos?.informe }],
+      cuenta: est?.cuenta,
+      boton: 'Generar informe',
+    })
+    if (!r.ok) return
   }
 
   if (isGeneratingReport.value) {
@@ -655,6 +724,14 @@ const handleNextStep = async () => {
   
   isGeneratingReport.value = true
   addLog(t('log.startingReportGen'))
+  // El informe exige el entorno cerrado: si sigue esperando entrevistas, se cierra antes de pedirlo
+  try {
+    const st = (await getRunStatus(props.simulationId)).data || {}
+    if (st.runner_status === 'running') {
+      addLog('Cerrando el entorno de la simulación para generar el informe…')
+      await cerrarEntornoYEsperar()
+    }
+  } catch (e) { /* se intenta de todos modos */ }
   
   try {
     const res = await generateReport({
@@ -688,10 +765,29 @@ watch(() => props.systemLogs?.length, () => {
   })
 })
 
-onMounted(() => {
+onMounted(async () => {
   addLog(t('log.step3Init'))
-  if (props.simulationId) {
+  if (!props.simulationId) return
+  // Protección (parche MX): abrir o recargar esta página NO debe reiniciar una simulación que ya corrió o está
+  // corriendo (el original llamaba a start con force y borraba la corrida; en iPhone basta con volver de otra app).
+  try {
+    const res = await getRunStatus(props.simulationId)
+    const st = res.data || {}
+    const ran = (st.current_round || 0) > 0 || ['running', 'paused', 'stopping', 'completed', 'stopped'].includes(st.runner_status)
+    if (ran) {
+      runStatus.value = st
+      phase.value = ['completed', 'stopped'].includes(st.runner_status) ? 2 : 1
+      startStatusPolling()
+      startDetailPolling()
+      if (phase.value === 2) emit('update-status', 'completed')
+      return
+    }
+  } catch (e) { /* sin estado previo: es una simulación nueva */ }
+  // Confirmación antes de gastar (parche MX): el paso 2 ya la pide al tocar "Iniciar simulación"
+  if (tomarConfirmado(props.simulationId, 'sim') || isAuto(props.simulationId)) {
     doStartSimulation()
+  } else {
+    pedirInicio()
   }
 })
 
@@ -701,6 +797,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.confirm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 12px 24px 0;
+  border: 1px solid #111827;
+  font-size: 14px;
+}
+.confirm-banner button {
+  padding: 8px 16px;
+  border: 0;
+  background: #111827;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
 .simulation-panel {
   height: 100%;
   display: flex;

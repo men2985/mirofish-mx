@@ -1,3 +1,46 @@
+# MiroFish MX — una ciudad digital de México que valida ideas
+
+> Fork de [666ghj/MiroFish](https://github.com/666ghj/MiroFish) (AGPL-3.0). Todo el crédito del motor original es de sus
+> autores; aquí están nuestras mejoras, publicadas bajo la misma licencia. El README original sigue más abajo.
+
+Cuéntale tu idea al chat (o pega el guion de tu anuncio en video) y MiroFish MX la lleva a una **ciudad digital de tu
+municipio**: arma una red social simulada donde ciudadanos sintéticos, calibrados con datos oficiales, publican,
+comentan, se responden, comparten y cambian de opinión entre ellos. Al final un informe te dice quién la acepta, qué
+objeciones aparecen y qué cambiar para que la acepten.
+
+## Qué cambia respecto al original
+
+- **Chat "Afinar tu idea"**: la IA revisa lo mínimo (oferta, precio, público, canal, competencia), pregunta solo lo que
+  falta con opciones para tocar y entrega una ficha que apruebas antes de gastar. El documento es opcional.
+- **Modo guion de video**: pega el guion de un anuncio; se divide en escenas sin reescribirlo y la ciudad dice si el
+  gancho detiene el scroll, en qué escena se pierde el interés y qué cambiar.
+- **La ciudad**: ciudadanos nuevos por cuotas del Censo INEGI 2020 (edad, sexo, escolaridad, religión, lengua) y nivel
+  socioeconómico AMAI, para cualquiera de los 2,469 municipios; territorio = municipio, zona metropolitana oficial
+  (Metrópolis de México 2020) o radio. Los ciudadanos se reutilizan entre validaciones.
+- **Pantalla en vivo**: grafo 3D a pantalla completa que crece mientras la ciudad conversa, con burbujas de lo que dicen.
+  Una sola confirmación lleva del chat al informe.
+- **Más rápido y sin Zep obligatorio**: servicio de grafo propio (Graphiti + FalkorDB), cola de trabajos en Postgres con
+  worker (la API ya no corre simulaciones), vectores por API en lugar de BERT local, DeepSeek sin razonamiento salvo el
+  informe.
+- **Créditos prepago** (Mercado Pago): costo real de IA × multiplicador configurable, medido en un solo punto.
+- **Español** completo (i18n), experiencia móvil sin desplazamiento lateral, infografía del informe (OpenAI Images),
+  publicaciones públicas de resultados.
+
+## Qué NO incluye este repositorio
+
+- El servicio de login y pagos (Google + Mercado Pago, `forwardAuth` de Traefik) es un programa aparte y no está aquí;
+  la API espera el usuario en la cabecera `X-Forwarded-User`.
+- Datos: `tools/catalogo_municipios.py` arma el catálogo nacional a partir de fuentes públicas (INEGI ITER 2020,
+  Metrópolis de México 2020, AMAI NSE 2022) que hay que descargar por separado; los archivos descargados no se incluyen.
+- Ningún secreto: configura tus claves en `.env` (ver `.env.example`).
+
+## Despliegue
+
+`docker-compose.yml` del original para desarrollo; en producción usamos Docker Swarm con los servicios API, worker,
+web (nginx, `Dockerfile.web` + `deploy/nginx.conf`), graph (`graph_service/`), FalkorDB y Postgres.
+
+---
+
 <div align="center">
 
 <img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFish Logo" width="75%"/>

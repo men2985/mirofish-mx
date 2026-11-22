@@ -7,6 +7,7 @@ import os
 import re
 import traceback
 import threading
+import time
 from contextlib import ExitStack, nullcontext
 from flask import request, jsonify
 from zep_cloud import NotFoundError
@@ -85,8 +86,7 @@ def _delete_cloud_graph_if_present(graph_id: str | None) -> None:
         active_simulations = _active_graph_consumers(graph_id)
         if active_simulations:
             raise GraphInUseError(
-                f"Graph {graph_id} is in use by active consumer(s): "
-                f"{', '.join(active_simulations)}"
+                t('api.graphInUse', graphId=graph_id, consumers=', '.join(active_simulations))
             )
         try:
             GraphBuilderService(api_key=Config.ZEP_API_KEY).delete_graph(graph_id)
@@ -154,7 +154,8 @@ def list_projects():
     列出所有项目
     """
     limit = request.args.get('limit', 50, type=int)
-    projects = ProjectManager.list_projects(limit=limit)
+    from ..utils.account import can_see
+    projects = [p for p in ProjectManager.list_projects(limit=None) if can_see(p.owner)][:limit]
     
     return jsonify({
         "success": True,
@@ -317,7 +318,8 @@ def generate_ontology():
             }), 400
         
         # 创建项目
-        project = ProjectManager.create_project(name=project_name)
+        from ..utils.account import current_email
+        project = ProjectManager.create_project(name=project_name, owner=current_email())
         project.simulation_requirement = simulation_requirement
         logger.info(f"创建项目: {project.project_id}")
         
@@ -400,13 +402,13 @@ def generate_ontology():
             response_status = 502
             logger.exception("LLM returned an unusable ontology response")
         elif isinstance(provider_status, int):
-            public_error = f"LLM provider request failed (HTTP {provider_status})"
+            public_error = t('api.llmProviderFailed', status=provider_status)
             if request_id:
                 safe_request_id = re.sub(
                     r"[^a-zA-Z0-9._:-]", "", str(request_id)
                 )[:128]
                 if safe_request_id:
-                    public_error += f" (request_id: {safe_request_id})"
+                    public_error += t('api.requestIdSuffix', requestId=safe_request_id)
             response_status = 502
             # Provider exception bodies may echo request content. Keep the
             # server log useful without serializing the exception body.
@@ -417,7 +419,7 @@ def generate_ontology():
                 request_id or "unknown",
             )
         else:
-            public_error = "Ontology generation failed; check the server logs"
+            public_error = t('api.ontologyFailedGeneric')
             response_status = 500
             logger.exception("Unexpected ontology generation failure")
 
@@ -517,7 +519,7 @@ def _build_graph_impl():
         if not isinstance(force, bool):
             return jsonify({
                 "success": False,
-                "error": "force must be a JSON boolean"
+                "error": t('api.jsonBooleanRequired', field='force')
             }), 400
         
         if project.status == ProjectStatus.CREATED:
@@ -587,7 +589,7 @@ def _build_graph_impl():
         chunk_size = data.get('chunk_size', project.chunk_size or Config.DEFAULT_CHUNK_SIZE)
         chunk_overlap = data.get('chunk_overlap', project.chunk_overlap or Config.DEFAULT_CHUNK_OVERLAP)
         if not isinstance(chunk_size, int) or chunk_size <= 0:
-            return jsonify({"success": False, "error": "chunk_size must be a positive integer"}), 400
+            return jsonify({"success": False, "error": t('api.chunkSizeInvalid')}), 400
         if (
             not isinstance(chunk_overlap, int)
             or chunk_overlap < 0
@@ -595,7 +597,7 @@ def _build_graph_impl():
         ):
             return jsonify({
                 "success": False,
-                "error": "chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size"
+                "error": t('api.chunkOverlapInvalid')
             }), 400
         
         # 更新项目配置
@@ -648,176 +650,11 @@ def _build_graph_impl():
         current_locale = get_locale()
 
         # 启动后台任务
-        def build_task():
-            set_locale(current_locale)
-            build_logger = get_logger('mirofish.build')
-            try:
-                build_logger.info(f"[{task_id}] 开始构建图谱...")
-                task_manager.update_task(
-                    task_id, 
-                    status=TaskStatus.PROCESSING,
-                    message=t('progress.initGraphService')
-                )
-                
-                # 创建图谱构建服务
-                builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
-                
-                # 分块
-                task_manager.update_task(
-                    task_id,
-                    message=t('progress.textChunking'),
-                    progress=5
-                )
-                chunks = TextProcessor.split_text(
-                    text, 
-                    chunk_size=chunk_size, 
-                    overlap=chunk_overlap
-                )
-                builder.validate_batch_chunks(chunks, batch_size=350)
-                total_chunks = len(chunks)
-                
-                if resume_existing_batch:
-                    graph_id = project.graph_id
-                    operation_id = builder.build_operation_id(graph_id, chunks)
-                    if operation_id != project.zep_batch_operation_id:
-                        raise RuntimeError(
-                            "Persisted Zep batch does not match the current graph input"
-                        )
-                    submission = BatchSubmission(
-                        batch_id=project.zep_batch_id,
-                        operation_id=operation_id,
-                        episode_uuids=[],
-                        item_count=total_chunks,
-                    )
-                    task_manager.update_task(
-                        task_id,
-                        message=t('progress.waitingZepProcess'),
-                        progress=55,
-                    )
-                else:
-                    # 创建图谱
-                    task_manager.update_task(
-                        task_id,
-                        message=t('progress.creatingZepGraph'),
-                        progress=10
-                    )
-
-                    def remember_graph(graph_id):
-                        project.graph_id = graph_id
-                        ProjectManager.save_project(project)
-
-                    graph_id = builder.create_graph(
-                        name=graph_name,
-                        graph_id_callback=remember_graph,
-                    )
-
-                    # 设置本体
-                    task_manager.update_task(
-                        task_id,
-                        message=t('progress.settingOntology'),
-                        progress=15
-                    )
-                    builder.set_ontology(graph_id, ontology)
-
-                    # 添加文本（progress_callback 签名是 (msg, progress_ratio)）
-                    def add_progress_callback(msg, progress_ratio):
-                        progress = 15 + int(progress_ratio * 40)  # 15% - 55%
-                        task_manager.update_task(
-                            task_id,
-                            message=msg,
-                            progress=progress
-                        )
-
-                    task_manager.update_task(
-                        task_id,
-                        message=t('progress.addingChunks', count=total_chunks),
-                        progress=15
-                    )
-
-                    def remember_batch(batch_id, operation_id):
-                        project.zep_batch_id = batch_id
-                        project.zep_batch_operation_id = operation_id
-                        ProjectManager.save_project(project)
-
-                    submission = builder.add_text_batches(
-                        graph_id,
-                        chunks,
-                        batch_size=350,
-                        progress_callback=add_progress_callback,
-                        batch_created_callback=remember_batch,
-                    )
-                
-                # 等待Zep处理完成（查询每个episode的processed状态）
-                task_manager.update_task(
-                    task_id,
-                    message=t('progress.waitingZepProcess'),
-                    progress=55
-                )
-                
-                def wait_progress_callback(msg, progress_ratio):
-                    progress = 55 + int(progress_ratio * 35)  # 55% - 90%
-                    task_manager.update_task(
-                        task_id,
-                        message=msg,
-                        progress=progress
-                    )
-                
-                builder._wait_for_batch(submission, wait_progress_callback)
-                
-                # 获取图谱数据
-                task_manager.update_task(
-                    task_id,
-                    message=t('progress.fetchingGraphData'),
-                    progress=95
-                )
-                graph_data = builder.get_graph_data(graph_id)
-                
-                node_count = graph_data.get("node_count", 0)
-                edge_count = graph_data.get("edge_count", 0)
-                build_logger.info(f"[{task_id}] 图谱构建完成: graph_id={graph_id}, 节点={node_count}, 边={edge_count}")
-
-                # Publish local project/task terminal state under the same
-                # lifecycle lock used by reset/delete/build claims. This
-                # prevents a deletion from interleaving between the two saves.
-                with _project_build_lock(project_id):
-                    project.status = ProjectStatus.GRAPH_COMPLETED
-                    project.error = None
-                    ProjectManager.save_project(project)
-                    task_manager.update_task(
-                        task_id,
-                        status=TaskStatus.COMPLETED,
-                        message=t('progress.graphBuildComplete'),
-                        progress=100,
-                        result={
-                            "project_id": project_id,
-                            "graph_id": graph_id,
-                            "node_count": node_count,
-                            "edge_count": edge_count,
-                            "chunk_count": total_chunks,
-                            "zep_batch_id": submission.batch_id,
-                        }
-                    )
-                
-            except Exception as e:
-                # 更新项目状态为失败
-                build_logger.error(f"[{task_id}] 图谱构建失败: {str(e)}")
-                build_logger.debug(traceback.format_exc())
-                
-                with _project_build_lock(project_id):
-                    project.status = ProjectStatus.FAILED
-                    project.error = str(e)
-                    ProjectManager.save_project(project)
-
-                    task_manager.update_task(
-                        task_id,
-                        status=TaskStatus.FAILED,
-                        message=t('progress.buildFailed', error=str(e)),
-                        error=traceback.format_exc()
-                    )
-        
-        # 启动后台线程
-        thread = threading.Thread(target=build_task, daemon=True)
-        thread.start()
+        # F3: el trabajo lo ejecuta el worker (run_graph_build_job); aquí solo se encola
+        task_manager.enqueue(task_id, 'graph_build', {
+            'project_id': project_id, 'graph_name': graph_name, 'chunk_size': chunk_size,
+            'chunk_overlap': chunk_overlap, 'resume_existing_batch': bool(resume_existing_batch),
+        }, current_locale)
         
         return jsonify({
             "success": True,
@@ -865,7 +702,10 @@ def list_tasks():
     """
     列出所有任务
     """
+    from ..utils.account import is_admin, owner_of_task, can_see
     tasks = TaskManager().list_tasks()
+    if not is_admin():
+        tasks = [x for x in tasks if can_see(owner_of_task(x['task_id'])[1])]
     
     return jsonify({
         "success": True,
@@ -875,6 +715,25 @@ def list_tasks():
 
 
 # ============== 图谱数据接口 ==============
+
+_GRAPH_CACHE_TTL = 30 * 60
+_graph_cache: dict = {}
+_graph_cache_lock = threading.Lock()
+
+
+def _graph_is_static(graph_id: str) -> bool:
+    """El grafo no está cambiando: ningún proyecto lo construye y ninguna simulación le escribe memoria."""
+    try:
+        for project in ProjectManager.list_projects(limit=None):
+            if project.graph_id == graph_id and project.status == ProjectStatus.GRAPH_BUILDING:
+                return False
+        from ..services.zep_graph_memory_updater import ZepGraphMemoryManager
+        with ZepGraphMemoryManager._lock:
+            updaters = list(ZepGraphMemoryManager._updaters.values())
+        return not any(getattr(u, 'graph_id', None) == graph_id for u in updaters)
+    except Exception:
+        return False
+
 
 @graph_bp.route('/data/<graph_id>', methods=['GET'])
 def get_graph_data(graph_id: str):
@@ -888,8 +747,25 @@ def get_graph_data(graph_id: str):
                 "error": t('api.zepApiKeyMissing')
             }), 500
         
-        builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
-        graph_data = builder.get_graph_data(graph_id)
+        # Caché en memoria (parche MX): leer el grafo completo de Zep tarda ~12 s con 500 nodos y
+        # 3,000 aristas, y el navegador lo vuelve a pedir en cada recarga (iPhone descarta la pestaña al
+        # cambiar de app). Solo se cachea un grafo "quieto": ni en construcción ni recibiendo memoria
+        # de una simulación en curso. ?refresh=1 (botón Actualizar) fuerza la lectura.
+        force = request.args.get('refresh') == '1'
+        cacheable = _graph_is_static(graph_id)
+        now = time.time()
+        with _graph_cache_lock:
+            hit = _graph_cache.get(graph_id)
+        if cacheable and not force and hit and now - hit[0] < _GRAPH_CACHE_TTL:
+            graph_data = hit[1]
+        else:
+            builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+            graph_data = builder.get_graph_data(graph_id)
+            with _graph_cache_lock:
+                if cacheable:
+                    _graph_cache[graph_id] = (now, graph_data)
+                else:
+                    _graph_cache.pop(graph_id, None)
         
         return jsonify({
             "success": True,
@@ -920,7 +796,7 @@ def delete_graph(graph_id: str):
         if not projects:
             return jsonify({
                 "success": False,
-                "error": "No local project references this graph"
+                "error": t('api.noLocalProjectForGraph')
             }), 404
         project_ids = sorted({project.project_id for project in projects})
         with ExitStack() as stack:
@@ -961,3 +837,179 @@ def delete_graph(graph_id: str):
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+# ============== F3: cuerpo del trabajo de construcción del grafo (lo ejecuta el worker) ==============
+def run_graph_build_job(task_id, params, current_locale):
+    project_id = params['project_id']
+    graph_name = params['graph_name']
+    chunk_size = params['chunk_size']
+    chunk_overlap = params['chunk_overlap']
+    resume_existing_batch = params['resume_existing_batch']
+    task_manager = TaskManager()
+    project = ProjectManager.get_project(project_id)
+    text = ProjectManager.get_extracted_text(project_id)
+    ontology = project.ontology
+    set_locale(current_locale)
+    build_logger = get_logger('mirofish.build')
+    try:
+        build_logger.info(f"[{task_id}] 开始构建图谱...")
+        task_manager.update_task(
+            task_id, 
+            status=TaskStatus.PROCESSING,
+            message=t('progress.initGraphService')
+        )
+
+        # 创建图谱构建服务
+        builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+
+        # 分块
+        task_manager.update_task(
+            task_id,
+            message=t('progress.textChunking'),
+            progress=5
+        )
+        chunks = TextProcessor.split_text(
+            text, 
+            chunk_size=chunk_size, 
+            overlap=chunk_overlap
+        )
+        builder.validate_batch_chunks(chunks, batch_size=350)
+        total_chunks = len(chunks)
+
+        if resume_existing_batch:
+            graph_id = project.graph_id
+            operation_id = builder.build_operation_id(graph_id, chunks)
+            if operation_id != project.zep_batch_operation_id:
+                raise RuntimeError(t('api.zepBatchMismatch'))
+            submission = BatchSubmission(
+                batch_id=project.zep_batch_id,
+                operation_id=operation_id,
+                episode_uuids=[],
+                item_count=total_chunks,
+            )
+            task_manager.update_task(
+                task_id,
+                message=t('progress.waitingZepProcess'),
+                progress=55,
+            )
+        else:
+            # 创建图谱
+            task_manager.update_task(
+                task_id,
+                message=t('progress.creatingZepGraph'),
+                progress=10
+            )
+
+            def remember_graph(graph_id):
+                project.graph_id = graph_id
+                ProjectManager.save_project(project)
+
+            graph_id = builder.create_graph(
+                name=graph_name,
+                graph_id_callback=remember_graph,
+            )
+
+            # 设置本体
+            task_manager.update_task(
+                task_id,
+                message=t('progress.settingOntology'),
+                progress=15
+            )
+            builder.set_ontology(graph_id, ontology)
+
+            # 添加文本（progress_callback 签名是 (msg, progress_ratio)）
+            def add_progress_callback(msg, progress_ratio):
+                progress = 15 + int(progress_ratio * 40)  # 15% - 55%
+                task_manager.update_task(
+                    task_id,
+                    message=msg,
+                    progress=progress
+                )
+
+            task_manager.update_task(
+                task_id,
+                message=t('progress.addingChunks', count=total_chunks),
+                progress=15
+            )
+
+            def remember_batch(batch_id, operation_id):
+                project.zep_batch_id = batch_id
+                project.zep_batch_operation_id = operation_id
+                ProjectManager.save_project(project)
+
+            submission = builder.add_text_batches(
+                graph_id,
+                chunks,
+                batch_size=350,
+                progress_callback=add_progress_callback,
+                batch_created_callback=remember_batch,
+            )
+
+        # 等待Zep处理完成（查询每个episode的processed状态）
+        task_manager.update_task(
+            task_id,
+            message=t('progress.waitingZepProcess'),
+            progress=55
+        )
+
+        def wait_progress_callback(msg, progress_ratio):
+            progress = 55 + int(progress_ratio * 35)  # 55% - 90%
+            task_manager.update_task(
+                task_id,
+                message=msg,
+                progress=progress
+            )
+
+        builder._wait_for_batch(submission, wait_progress_callback)
+
+        # 获取图谱数据
+        task_manager.update_task(
+            task_id,
+            message=t('progress.fetchingGraphData'),
+            progress=95
+        )
+        graph_data = builder.get_graph_data(graph_id)
+
+        node_count = graph_data.get("node_count", 0)
+        edge_count = graph_data.get("edge_count", 0)
+        build_logger.info(f"[{task_id}] 图谱构建完成: graph_id={graph_id}, 节点={node_count}, 边={edge_count}")
+
+        # Publish local project/task terminal state under the same
+        # lifecycle lock used by reset/delete/build claims. This
+        # prevents a deletion from interleaving between the two saves.
+        with _project_build_lock(project_id):
+            project.status = ProjectStatus.GRAPH_COMPLETED
+            project.error = None
+            ProjectManager.save_project(project)
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                message=t('progress.graphBuildComplete'),
+                progress=100,
+                result={
+                    "project_id": project_id,
+                    "graph_id": graph_id,
+                    "node_count": node_count,
+                    "edge_count": edge_count,
+                    "chunk_count": total_chunks,
+                    "zep_batch_id": submission.batch_id,
+                }
+            )
+
+    except Exception as e:
+        # 更新项目状态为失败
+        build_logger.error(f"[{task_id}] 图谱构建失败: {str(e)}")
+        build_logger.debug(traceback.format_exc())
+
+        with _project_build_lock(project_id):
+            project.status = ProjectStatus.FAILED
+            project.error = str(e)
+            ProjectManager.save_project(project)
+
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.FAILED,
+                message=t('progress.buildFailed', error=str(e)),
+                error=traceback.format_exc()
+            )

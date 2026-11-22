@@ -28,6 +28,7 @@ from ..utils.zep import (
     is_retryable_zep_error,
 )
 from .text_processor import TextProcessor
+from ..utils.local_graph import LOCAL_PREFIX, is_local_graph
 from ..utils.locale import t, get_locale, set_locale
 
 
@@ -67,7 +68,7 @@ class GraphBuilderService:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or Config.ZEP_API_KEY
         if not self.api_key:
-            raise ValueError("ZEP_API_KEY 未配置")
+            raise ValueError(t('api.zepApiKeyMissing'))
         
         self.client = get_zep_client(self.api_key)
         self.task_manager = TaskManager()
@@ -224,7 +225,9 @@ class GraphBuilderService:
     ) -> str:
         """Create a graph with a caller-durable ID and reconcile lost replies."""
 
-        graph_id = graph_id or f"mirofish_{uuid.uuid4().hex[:16]}"
+        # F2 (parche MX): con ZEP_BACKEND=graphiti los grafos nuevos van al servicio propio (prefijo mfl_)
+        prefix = LOCAL_PREFIX if Config.GRAPH_BACKEND == "graphiti" else "mirofish_"
+        graph_id = graph_id or f"{prefix}{uuid.uuid4().hex[:16]}"
         # Persist the client-generated ID before the non-idempotent POST so a
         # later reset can clean up a graph whose successful response was lost.
         if graph_id_callback:
@@ -312,6 +315,10 @@ class GraphBuilderService:
     
     def set_ontology(self, graph_id: str, ontology: Dict[str, Any]):
         """设置图谱本体（公开方法）"""
+        if is_local_graph(graph_id):
+            # Servicio propio: recibe la ontología en JSON y la traduce a tipos de Graphiti
+            self.client.graph.set_ontology_raw(graph_id, ontology)
+            return
         import warnings
         from typing import Optional
         from pydantic import Field
@@ -423,6 +430,17 @@ class GraphBuilderService:
         if not graph_id:
             raise ValueError("graph_id is required")
         self.validate_batch_chunks(chunks, batch_size=batch_size)
+        if is_local_graph(graph_id):
+            # Servicio propio: un solo llamado encola todos los fragmentos; la espera se hace por episodio
+            episode_uuids = self.client.graph.add_texts(graph_id, chunks)
+            if progress_callback:
+                progress_callback(t('progress.addingChunks', count=len(chunks)), 1.0)
+            return BatchSubmission(
+                batch_id=f"local:{graph_id}",
+                operation_id=self.build_operation_id(graph_id, chunks),
+                episode_uuids=episode_uuids,
+                item_count=len(chunks),
+            )
 
         total_chunks = len(chunks)
         operation_id = self.build_operation_id(graph_id, chunks)
@@ -636,6 +654,12 @@ class GraphBuilderService:
     ) -> List[str]:
         """Wait for a Batch API terminal state and validate every item."""
 
+        if submission.batch_id and submission.batch_id.startswith("local:"):
+            # Servicio propio: ~6 s por fragmento con DeepSeek; margen amplio para semillas grandes
+            self._wait_for_episodes(
+                submission.episode_uuids, progress_callback,
+                timeout=max(timeout or 0, 1800, 30 * len(submission.episode_uuids)))
+            return list(submission.episode_uuids)
         timeout = timeout or ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
         start_time = time.time()
         terminal_states = {"succeeded", "partial", "failed", "invalid", "canceled"}

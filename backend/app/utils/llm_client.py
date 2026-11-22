@@ -95,8 +95,12 @@ class LLMClient:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        thinking: bool = False,
     ):
+        # thinking=True solo en el agente del informe (decisión de producto 11-22): sin razonamiento el informe bajó de
+        # 5 secciones / 24 búsquedas / 38k caracteres a 3 / 10 / 9k. El resto de llamados va sin razonamiento.
+        self.thinking = thinking
         self.api_key = api_key or Config.LLM_API_KEY
         self.base_url = base_url or Config.LLM_BASE_URL
         self.model = model or Config.LLM_MODEL_NAME
@@ -121,6 +125,7 @@ class LLMClient:
 
         return create_chat_completion(
             self.client,
+            thinking=self.thinking,
             model=self.model,
             messages=messages,
             temperature=temperature,

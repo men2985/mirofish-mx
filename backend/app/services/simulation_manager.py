@@ -249,7 +249,10 @@ class SimulationManager:
         defined_entity_types: Optional[List[str]] = None,
         use_llm_for_profiles: bool = True,
         progress_callback: Optional[callable] = None,
-        parallel_profile_count: int = 3
+        parallel_profile_count: int = 3,
+        territorio: Optional[str] = None,
+        n_ciudadanos: int = 60,
+        max_agentes: Optional[int] = None,
     ) -> SimulationState:
         """
         准备模拟环境（全程自动化）
@@ -275,7 +278,7 @@ class SimulationManager:
         """
         state = self._load_simulation_state(simulation_id)
         if not state:
-            raise ValueError(f"模拟不存在: {simulation_id}")
+            raise ValueError(t('api.simulationNotFound', id=simulation_id))
         
         try:
             state.status = SimulationStatus.PREPARING
@@ -302,6 +305,21 @@ class SimulationManager:
                 enrich_with_edges=True
             )
             
+            # Máximo de agentes elegido en la confirmación (parche MX): subconjunto equilibrado por tipo
+            # (se toma uno de cada tipo por vuelta), para bajar el costo sin perder la variedad de actores
+            if max_agentes and int(max_agentes) > 0 and len(filtered.entities) > int(max_agentes):
+                por_tipo = {}
+                for ent in filtered.entities:
+                    por_tipo.setdefault(ent.get_entity_type() or 'Entity', []).append(ent)
+                elegidos, colas = [], [list(v) for v in por_tipo.values()]
+                while len(elegidos) < int(max_agentes) and any(colas):
+                    for cola in colas:
+                        if cola and len(elegidos) < int(max_agentes):
+                            elegidos.append(cola.pop(0))
+                logger.info(f"Agentes limitados a {len(elegidos)} de {len(filtered.entities)} (equilibrado por tipo)")
+                filtered.entities = elegidos
+                filtered.filtered_count = len(elegidos)
+
             state.entities_count = filtered.filtered_count
             state.entity_types = list(filtered.entity_types)
             
@@ -315,7 +333,7 @@ class SimulationManager:
             
             if filtered.filtered_count == 0:
                 state.status = SimulationStatus.FAILED
-                state.error = "没有找到符合条件的实体，请检查图谱是否正确构建"
+                state.error = t('api.noEntitiesCheckGraph')
                 self._save_simulation_state(state)
                 raise ValueError(state.error)
             
@@ -364,6 +382,25 @@ class SimulationManager:
                 output_platform=realtime_platform  # 输出格式
             )
             
+            # La ciudad (parche MX): ciudadanos genéricos del territorio + su capa por idea, después de los
+            # actores de la semilla (agent_id = posición en la lista de entidades)
+            agent_entities = list(filtered.entities)
+            if territorio:
+                from .city_population import preparar_ciudadanos
+
+                def city_progress(msg, pct):
+                    if progress_callback:
+                        progress_callback("generating_profiles", 95, msg)
+
+                cit_profiles, cit_entities, city_summary = preparar_ciudadanos(
+                    territorio, int(n_ciudadanos or 60), simulation_id,
+                    f"{simulation_requirement}\n\n{document_text or ''}",
+                    start_idx=len(profiles), progress=city_progress)
+                profiles = list(profiles) + cit_profiles
+                agent_entities += cit_entities
+                with open(os.path.join(sim_dir, "ciudadanos.json"), 'w', encoding='utf-8') as f:
+                    json.dump(city_summary, f, ensure_ascii=False, indent=2)
+
             state.profiles_count = len(profiles)
             state.profiles_generated = len(profiles) > 0
             self._save_simulation_state(state)
@@ -426,7 +463,7 @@ class SimulationManager:
                 graph_id=state.graph_id,
                 simulation_requirement=simulation_requirement,
                 document_text=document_text,
-                entities=filtered.entities,
+                entities=agent_entities,
                 enable_twitter=state.enable_twitter,
                 enable_reddit=state.enable_reddit
             )
@@ -502,13 +539,13 @@ class SimulationManager:
         """获取模拟的Agent Profile"""
         state = self._load_simulation_state(simulation_id)
         if not state:
-            raise ValueError(f"模拟不存在: {simulation_id}")
+            raise ValueError(t('api.simulationNotFound', id=simulation_id))
 
         if platform is None:
             platform = state.get_default_platform()
 
         if platform not in {"twitter", "reddit"}:
-            raise ValueError(f"不支持的平台: {platform}")
+            raise ValueError(t('api.unsupportedPlatform', platform=platform))
 
         sim_dir = self._get_simulation_dir(simulation_id)
         profile_path = os.path.join(

@@ -11,6 +11,9 @@ from flask import request, jsonify, send_file
 from . import report_bp
 from ..config import Config
 from ..services.report_agent import ReportAgent, ReportManager, ReportStatus
+from ..services.illustration import IllustrationService
+from ..services.share import ShareService
+from ..services.graph_builder import GraphBuilderService
 from ..services.simulation_manager import SimulationManager
 from ..services.simulation_runner import SimulationRunner, RunnerStatus
 from ..services.zep_graph_memory_updater import ZepGraphMemoryManager
@@ -68,7 +71,7 @@ def generate_report():
         if not isinstance(force_regenerate, bool):
             return jsonify({
                 "success": False,
-                "error": "force_regenerate must be a JSON boolean",
+                "error": t('api.jsonBooleanRequired', field='force_regenerate'),
             }), 400
         
         # 获取模拟信息
@@ -94,10 +97,7 @@ def generate_report():
         ):
             return jsonify({
                 "success": False,
-                "error": (
-                    "Simulation or Zep graph ingestion is still active; "
-                    "wait for a terminal run status before generating a report"
-                ),
+                "error": t('api.reportIngestionActive'),
                 "ingestion_pending": updater is not None,
             }), 409
         successful_terminal_statuses = {
@@ -110,10 +110,7 @@ def generate_report():
         ):
             return jsonify({
                 "success": False,
-                "error": (
-                    "A successfully completed or stopped simulation is required "
-                    "before generating a report"
-                ),
+                "error": t('api.reportNeedsFinishedSim'),
             }), 409
 
         # 获取项目信息
@@ -127,7 +124,7 @@ def generate_report():
         if project.status != ProjectStatus.GRAPH_COMPLETED:
             return jsonify({
                 "success": False,
-                "error": "The project graph must be completely built before reporting",
+                "error": t('api.reportGraphNotComplete'),
             }), 409
 
         graph_id = project.graph_id
@@ -139,10 +136,7 @@ def generate_report():
         if state.graph_id and state.graph_id != graph_id:
             return jsonify({
                 "success": False,
-                "error": (
-                    "The simulation references an older graph; prepare it "
-                    "again before generating a report"
-                ),
+                "error": t('api.reportOlderGraph'),
             }), 409
         
         simulation_requirement = project.simulation_requirement
@@ -181,7 +175,7 @@ def generate_report():
             ):
                 return jsonify({
                     "success": False,
-                    "error": "The project graph changed while reporting was starting",
+                    "error": t('api.reportGraphChanged'),
                 }), 409
             if refreshed_updater is not None or (
                 refreshed_run_state is not None
@@ -189,10 +183,7 @@ def generate_report():
             ):
                 return jsonify({
                     "success": False,
-                    "error": (
-                        "Simulation or Zep graph ingestion became active; "
-                        "retry after it reaches a terminal state"
-                    ),
+                    "error": t('api.reportIngestionBecameActive'),
                     "ingestion_pending": refreshed_updater is not None,
                 }), 409
             if (
@@ -202,10 +193,7 @@ def generate_report():
             ):
                 return jsonify({
                     "success": False,
-                    "error": (
-                        "A successfully completed or stopped simulation is "
-                        "required before generating a report"
-                    ),
+                    "error": t('api.reportNeedsFinishedSim'),
                 }), 409
 
             # Cached-report reuse is now part of the same atomic barrier, so a
@@ -242,58 +230,13 @@ def generate_report():
             current_locale = get_locale()
             register_graph_reader(graph_id, report_id)
 
-            def run_generate():
-                set_locale(current_locale)
-                try:
-                    task_manager.update_task(
-                        task_id,
-                        status=TaskStatus.PROCESSING,
-                        progress=0,
-                        message=t('api.initReportAgent')
-                    )
-
-                    agent = ReportAgent(
-                        graph_id=graph_id,
-                        simulation_id=simulation_id,
-                        simulation_requirement=simulation_requirement
-                    )
-
-                    def progress_callback(stage, progress, message):
-                        task_manager.update_task(
-                            task_id,
-                            progress=progress,
-                            message=f"[{stage}] {message}"
-                        )
-
-                    report = agent.generate_report(
-                        progress_callback=progress_callback,
-                        report_id=report_id
-                    )
-                    ReportManager.save_report(report)
-
-                    if report.status == ReportStatus.COMPLETED:
-                        task_manager.complete_task(
-                            task_id,
-                            result={
-                                "report_id": report.report_id,
-                                "simulation_id": simulation_id,
-                                "status": "completed"
-                            }
-                        )
-                    else:
-                        task_manager.fail_task(
-                            task_id,
-                            report.error or t('api.reportGenerateFailed')
-                        )
-                except Exception as e:
-                    logger.error(f"报告生成失败: {str(e)}")
-                    task_manager.fail_task(task_id, str(e))
-                finally:
-                    unregister_graph_reader(graph_id, report_id)
-
+            # F3: el trabajo lo ejecuta el worker (run_report_job); aquí solo se encola.
+            # El lector del grafo queda registrado en Postgres y lo libera el worker al terminar.
             try:
-                thread = threading.Thread(target=run_generate, daemon=True)
-                thread.start()
+                task_manager.enqueue(task_id, 'report_generate', {
+                    'graph_id': graph_id, 'simulation_id': simulation_id,
+                    'simulation_requirement': simulation_requirement, 'report_id': report_id,
+                }, current_locale)
             except Exception:
                 unregister_graph_reader(graph_id, report_id)
                 raise
@@ -494,10 +437,15 @@ def list_reports():
         simulation_id = request.args.get('simulation_id')
         limit = request.args.get('limit', 50, type=int)
         
+        from ..utils.account import is_admin, owner_of_simulation, can_see
         reports = ReportManager.list_reports(
             simulation_id=simulation_id,
-            limit=limit
+            limit=None if not is_admin() else limit
         )
+        if not is_admin():
+            _owners = {}
+            reports = [r for r in reports
+                       if can_see(_owners.setdefault(r.simulation_id, owner_of_simulation(r.simulation_id)[1]))][:limit]
         
         return jsonify({
             "success": True,
@@ -1137,3 +1085,162 @@ def get_graph_statistics_tool():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+# ============== Ilustración del informe (parche MX) ==============
+
+@report_bp.route('/<report_id>/illustration', methods=['GET'])
+def get_illustration(report_id: str):
+    """Estado de la ilustración: si la función está configurada y si ya existe la imagen."""
+    meta = IllustrationService.get_meta(report_id)
+    return jsonify({
+        "success": True,
+        "data": {
+            "available": IllustrationService.is_available(),
+            "exists": meta is not None,
+            "illustration": meta
+        }
+    })
+
+
+@report_bp.route('/<report_id>/illustration', methods=['POST'])
+def generate_illustration(report_id: str):
+    """Genera (o regenera con force=true) la ilustración del informe. Síncrono: 30-90 s."""
+    try:
+        data = request.get_json(silent=True) or {}
+        meta = IllustrationService.generate(report_id, force=bool(data.get('force')))
+        return jsonify({"success": True, "data": meta})
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({"success": False, "error": str(e)}), 409
+    except Exception as e:
+        logger.error(f"Ilustración falló para {report_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
+@report_bp.route('/<report_id>/illustration.png', methods=['GET'])
+def download_illustration(report_id: str):
+    """Sirve el PNG. Con ?download=1 fuerza descarga."""
+    path = IllustrationService.image_path(report_id)
+    if not os.path.exists(path):
+        return jsonify({"success": False, "error": t('api.reportNotFound', id=report_id)}), 404
+    return send_file(
+        path,
+        mimetype='image/png',
+        as_attachment=request.args.get('download') == '1',
+        download_name=f"{report_id}_illustration.png",
+        max_age=0
+    )
+
+
+# ============== Publicación pública del informe (parche MX) ==============
+
+def _share_url(token: str) -> str:
+    proto = request.headers.get('X-Forwarded-Proto', 'https')
+    host = request.headers.get('X-Forwarded-Host') or request.host
+    return f"{proto}://{host}/p/{token}"
+
+
+def _share_response(meta):
+    data = ShareService.public_meta(meta)
+    data['url'] = _share_url(meta['token'])
+    data['owner'] = meta.get('owner')
+    return data
+
+
+@report_bp.route('/<report_id>/share', methods=['GET'])
+def get_share(report_id: str):
+    """¿Este informe ya está publicado? Devuelve la publicación o null."""
+    meta = ShareService.find_by_report(report_id)
+    return jsonify({"success": True, "data": _share_response(meta) if meta else None})
+
+
+@report_bp.route('/<report_id>/share', methods=['POST'])
+def create_share(report_id: str):
+    """Publica el informe: resumen para WhatsApp, ilustración y grafo congelados. Idempotente."""
+    try:
+        existing = ShareService.find_by_report(report_id)
+        if existing:
+            return jsonify({"success": True, "data": _share_response(existing)})
+        report = ReportManager.get_report(report_id)
+        graph_data = None
+        if report and report.graph_id and Config.ZEP_API_KEY:
+            try:
+                graph_data = GraphBuilderService(api_key=Config.ZEP_API_KEY).get_graph_data(report.graph_id)
+            except Exception as e:  # el grafo es opcional: se publica sin él
+                logger.warning(f"Publicación sin grafo ({report_id}): {e}")
+        owner = request.headers.get('X-Forwarded-User')
+        meta = ShareService.create(report_id, owner, graph_data)
+        return jsonify({"success": True, "data": _share_response(meta)})
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"No se pudo publicar {report_id}: {e}")
+        return jsonify({"success": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@report_bp.route('/<report_id>/share', methods=['DELETE'])
+def delete_share(report_id: str):
+    """Revoca la publicación: el enlace deja de funcionar."""
+    return jsonify({"success": True, "data": {"revoked": ShareService.revoke(report_id)}})
+
+
+# ============== F3: cuerpo del trabajo de informe (lo ejecuta el worker) ==============
+def run_report_job(task_id, params, current_locale):
+    graph_id = params['graph_id']
+    simulation_id = params['simulation_id']
+    simulation_requirement = params['simulation_requirement']
+    report_id = params['report_id']
+    task_manager = TaskManager()
+    set_locale(current_locale)
+    try:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            progress=0,
+            message=t('api.initReportAgent')
+        )
+
+        agent = ReportAgent(
+            graph_id=graph_id,
+            simulation_id=simulation_id,
+            simulation_requirement=simulation_requirement
+        )
+
+        def progress_callback(stage, progress, message):
+            task_manager.update_task(
+                task_id,
+                progress=progress,
+                message=f"[{stage}] {message}"
+            )
+
+        report = agent.generate_report(
+            progress_callback=progress_callback,
+            report_id=report_id
+        )
+        ReportManager.save_report(report)
+
+        if report.status == ReportStatus.COMPLETED:
+            task_manager.complete_task(
+                task_id,
+                result={
+                    "report_id": report.report_id,
+                    "simulation_id": simulation_id,
+                    "status": "completed"
+                }
+            )
+        else:
+            task_manager.fail_task(
+                task_id,
+                report.error or t('api.reportGenerateFailed')
+            )
+    except Exception as e:
+        logger.error(f"报告生成失败: {str(e)}")
+        task_manager.fail_task(task_id, str(e))
+    finally:
+        unregister_graph_reader(graph_id, report_id)

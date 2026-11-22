@@ -1,0 +1,10 @@
+# Servicio de grafo de MiroFish (fork MX). Versiones fijadas con al menos dos semanas de publicadas (2026-11-21).
+graphiti-core[falkordb]==0.31.2
+falkordb==1.8.1
+# graphiti-core 0.31.2 importa httpx sin declararlo como dependencia
+httpx==0.28.1
+# Lector del protocolo Redis en C: sin él, leer los vectores de FalkorDB en Python puro saturaba la CPU (~130 mil
+# llamadas por búsqueda; búsquedas de 1.4-2.7 s y perfiles 2 veces más lentos que con Zep)
+hiredis==3.5.0
+fastapi==0.162.0
+uvicorn==0.54.0

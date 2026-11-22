@@ -9,7 +9,7 @@
       <div class="header-center">
         <div class="view-switcher">
           <button 
-            v-for="mode in ['graph', 'split', 'workbench']" 
+            v-for="mode in viewModes" 
             :key="mode"
             class="switch-btn"
             :class="{ active: viewMode === mode }"
@@ -21,10 +21,11 @@
       </div>
 
       <div class="header-right">
+        <SaldoBadge />
         <LanguageSwitcher />
         <div class="step-divider"></div>
         <div class="workflow-step">
-          <span class="step-num">Step 5/5</span>
+          <span class="step-num">{{ $t('main.stepProgress', { n: 5 }) }}</span>
           <span class="step-name">{{ $tm('main.stepNames')[4] }}</span>
         </div>
         <div class="step-divider"></div>
@@ -73,6 +74,7 @@ import { getProject, getGraphData } from '../api/graph'
 import { getSimulation } from '../api/simulation'
 import { getReport } from '../api/report'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import SaldoBadge from '../components/SaldoBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -84,7 +86,14 @@ const props = defineProps({
 })
 
 // Layout State - 默认切换到工作台视角
-const viewMode = ref('workbench')
+// Celular (parche MX): un panel a la vez, se abre en Trabajo y no existe "Dividido"
+const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+const viewModes = isMobile ? ['graph', 'workbench'] : ['graph', 'split', 'workbench']
+// Recordar la vista por pantalla (parche MX): iPhone recarga la pestaña al volver de otra app
+const _viewKey = 'mf:view:' + route.path
+const _savedView = (() => { try { return sessionStorage.getItem(_viewKey) } catch (e) { return null } })()
+const viewMode = ref(viewModes.includes(_savedView) ? _savedView : (isMobile ? 'workbench' : 'workbench'))
+watch(viewMode, (mode) => { try { sessionStorage.setItem(_viewKey, mode) } catch (e) {} })
 
 // Data State
 const currentReportId = ref(route.params.reportId)
@@ -114,10 +123,10 @@ const statusClass = computed(() => {
 })
 
 const statusText = computed(() => {
-  if (currentStatus.value === 'error') return 'Error'
-  if (currentStatus.value === 'completed') return 'Completed'
-  if (currentStatus.value === 'processing') return 'Processing'
-  return 'Ready'
+  if (currentStatus.value === 'error') return t('common.error')
+  if (currentStatus.value === 'completed') return t('common.completed')
+  if (currentStatus.value === 'processing') return t('main.statusProcessing')
+  return t('common.ready')
 })
 
 // --- Helpers ---
@@ -136,7 +145,7 @@ const updateStatus = (status) => {
 // --- Layout Methods ---
 const toggleMaximize = (target) => {
   if (viewMode.value === target) {
-    viewMode.value = 'split'
+    viewMode.value = isMobile ? 'workbench' : 'split'
   } else {
     viewMode.value = target
   }
@@ -168,7 +177,10 @@ const loadReportData = async () => {
 
               // 获取 graph 数据
               if (projRes.data.graph_id) {
-                await loadGraph(projRes.data.graph_id)
+                // Grafo bajo demanda (parche MX): en "Mesa de trabajo" no se pide a Zep ni se dibuja
+                if (viewMode.value !== 'workbench') {
+                  await loadGraph(projRes.data.graph_id)
+                }
               }
             }
           }
@@ -182,11 +194,11 @@ const loadReportData = async () => {
   }
 }
 
-const loadGraph = async (graphId) => {
+const loadGraph = async (graphId, refresh = false) => {
   graphLoading.value = true
   
   try {
-    const res = await getGraphData(graphId)
+    const res = await getGraphData(graphId, refresh)
     if (res.success) {
       graphData.value = res.data
       addLog(t('log.graphDataLoadSuccess'))
@@ -200,9 +212,16 @@ const loadGraph = async (graphId) => {
 
 const refreshGraph = () => {
   if (projectData.value?.graph_id) {
-    loadGraph(projectData.value.graph_id)
+    loadGraph(projectData.value.graph_id, true)
   }
 }
+
+// Grafo bajo demanda (parche MX): se carga la primera vez que se muestra
+watch(viewMode, (mode) => {
+  if (mode !== 'workbench' && !graphData.value && !graphLoading.value && projectData.value?.graph_id) {
+    loadGraph(projectData.value.graph_id)
+  }
+})
 
 // Watch route params
 watch(() => route.params.reportId, (newId) => {

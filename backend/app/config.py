@@ -31,6 +31,10 @@ class Config:
     
     # Zep配置
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
+    # Grafo (F2, parche MX): 'cloud' = solo Zep Cloud; 'graphiti' = grafos nuevos en el servicio propio
+    # (Graphiti + FalkorDB, prefijo mfl_) y los existentes de Zep siguen leyéndose de Zep.
+    GRAPH_BACKEND = os.environ.get('ZEP_BACKEND', 'cloud').strip().lower()
+    GRAPH_SERVICE_URL = os.environ.get('GRAPH_SERVICE_URL', 'http://graph:8000')
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
@@ -54,6 +58,12 @@ class Config:
         'LIKE_COMMENT', 'DISLIKE_COMMENT', 'SEARCH_POSTS', 'SEARCH_USER',
         'TREND', 'REFRESH', 'DO_NOTHING', 'FOLLOW', 'MUTE'
     ]
+    
+    # Ilustración del informe (OpenAI Images). Sin ILLUSTRATION_OPENAI_API_KEY el botón no aparece.
+    ILLUSTRATION_OPENAI_API_KEY = os.environ.get('ILLUSTRATION_OPENAI_API_KEY')
+    ILLUSTRATION_IMAGE_MODEL = os.environ.get('ILLUSTRATION_IMAGE_MODEL', 'gpt-image-2')
+    ILLUSTRATION_IMAGE_SIZE = os.environ.get('ILLUSTRATION_IMAGE_SIZE', '1536x1024')
+    ILLUSTRATION_IMAGE_QUALITY = os.environ.get('ILLUSTRATION_IMAGE_QUALITY', 'medium')
     
     # Report Agent配置
     REPORT_AGENT_MAX_TOOL_CALLS = int(os.environ.get('REPORT_AGENT_MAX_TOOL_CALLS', '5'))

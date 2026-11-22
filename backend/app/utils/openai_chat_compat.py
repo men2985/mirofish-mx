@@ -17,6 +17,15 @@ def is_gpt5_family(model: Optional[str]) -> bool:
     return model.strip().lower().startswith("gpt-5")
 
 
+def is_deepseek(model: Optional[str]) -> bool:
+    return bool(model) and model.strip().lower().startswith("deepseek")
+
+
+# Parche MX (2026-11-22): DeepSeek razona por defecto y el razonamiento era ~92 % de los tokens de salida
+# No se necesita en MiroFish -> se apaga en todos los llamados.
+DEEPSEEK_NO_THINKING = {"thinking": {"type": "disabled"}}
+
+
 def create_chat_completion(
     client: Any,
     *,
@@ -25,6 +34,7 @@ def create_chat_completion(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     response_format: Optional[Dict[str, Any]] = None,
+    thinking: bool = False,
 ) -> Any:
     """
     Create a chat completion with model-specific request parameters.
@@ -54,7 +64,17 @@ def create_chat_completion(
         else:
             kwargs["max_tokens"] = max_tokens
 
-    return client.chat.completions.create(**kwargs)
+    if is_deepseek(model) and not thinking:
+        kwargs["extra_body"] = DEEPSEEK_NO_THINKING
+
+    response = client.chat.completions.create(**kwargs)
+    # F4: el uso se anota en el medidor del trabajo o petición en curso (créditos)
+    try:
+        from ..services.credits import record_chat_usage
+        record_chat_usage(getattr(response, "model", None) or model, getattr(response, "usage", None))
+    except Exception:  # noqa: BLE001  (medir nunca debe romper una llamada)
+        pass
+    return response
 
 
 def extract_chat_completion_text(response: Any) -> str:

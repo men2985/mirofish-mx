@@ -201,7 +201,7 @@ class InsightForgeResult:
         if self.entity_insights:
             text_parts.append(f"\n### 【核心实体】")
             for entity in self.entity_insights:
-                text_parts.append(f"- **{entity.get('name', '未知')}** ({entity.get('type', '实体')})")
+                text_parts.append(f"- **{entity.get('name', t('tools.unknown'))}** ({entity.get('type', t('tools.entity'))})")
                 if entity.get('summary'):
                     text_parts.append(f"  摘要: \"{entity.get('summary')}\"")
                 if entity.get('related_facts'):
@@ -280,7 +280,7 @@ class PanoramaResult:
         if self.all_nodes:
             text_parts.append(f"\n### 【涉及实体】")
             for node in self.all_nodes:
-                entity_type = next((l for l in node.labels if l not in ["Entity", "Node"]), "实体")
+                entity_type = next((l for l in node.labels if l not in ["Entity", "Node"]), t('tools.entity'))
                 text_parts.append(f"- **{node.name}** ({entity_type})")
         
         return "\n".join(text_parts)
@@ -384,7 +384,7 @@ class InterviewResult:
             f"**采访主题:** {self.interview_topic}",
             f"**采访人数:** {self.interviewed_count} / {self.total_agents} 位模拟Agent",
             "\n### 采访对象选择理由",
-            self.selection_reasoning or "（自动选择）",
+            self.selection_reasoning or t('tools.autoSelected'),
             "\n---",
             "\n### 采访实录",
         ]
@@ -395,10 +395,10 @@ class InterviewResult:
                 text_parts.append(interview.to_text())
                 text_parts.append("\n---")
         else:
-            text_parts.append("（无采访记录）\n\n---")
+            text_parts.append(t('tools.noInterviewRecords') + "\n\n---")
 
         text_parts.append("\n### 采访摘要与核心观点")
-        text_parts.append(self.summary or "（无摘要）")
+        text_parts.append(self.summary or t('tools.noSummary'))
 
         return "\n".join(text_parts)
 
@@ -430,7 +430,7 @@ class ZepToolsService:
     def __init__(self, api_key: Optional[str] = None, llm_client: Optional[LLMClient] = None):
         self.api_key = api_key or Config.ZEP_API_KEY
         if not self.api_key:
-            raise ValueError("ZEP_API_KEY 未配置")
+            raise ValueError(t('api.zepApiKeyMissing'))
         
         self.client = get_zep_client(self.api_key)
         # LLM客户端用于InsightForge生成子问题
@@ -1044,7 +1044,7 @@ class ZepToolsService:
                 node = self.get_node_detail(uuid)
                 if node:
                     node_map[uuid] = node
-                    entity_type = next((l for l in node.labels if l not in ["Entity", "Node"]), "实体")
+                    entity_type = next((l for l in node.labels if l not in ["Entity", "Node"]), t('tools.entity'))
                     
                     # 获取该实体相关的所有事实（不截断）
                     related_facts = [
@@ -1135,9 +1135,9 @@ class ZepToolsService:
             # 降级：返回基于原问题的变体
             return [
                 query,
-                f"{query} 的主要参与者",
-                f"{query} 的原因和影响",
-                f"{query} 的发展过程"
+                t('tools.subQueryParticipants', query=query),
+                t('tools.subQueryCauses', query=query),
+                t('tools.subQueryEvolution', query=query)
             ][:max_queries]
     
     def panorama_search(
@@ -1198,8 +1198,8 @@ class ZepToolsService:
             
             if is_historical:
                 # 历史/过期事实，添加时间标记
-                valid_at = edge.valid_at or "未知"
-                invalid_at = edge.invalid_at or edge.expired_at or "未知"
+                valid_at = edge.valid_at or t('tools.unknown')
+                invalid_at = edge.invalid_at or edge.expired_at or t('tools.unknown')
                 fact_with_time = f"[{valid_at} - {invalid_at}] {edge.fact}"
                 historical_facts.append(fact_with_time)
             else:
@@ -1316,7 +1316,7 @@ class ZepToolsService:
         
         if not profiles:
             logger.warning(t("console.profilesNotFound", simId=simulation_id))
-            result.summary = "未找到可采访的Agent人设文件"
+            result.summary = t('tools.noProfilesForInterview')
             return result
         
         result.total_agents = len(profiles)
@@ -1385,9 +1385,9 @@ class ZepToolsService:
             
             # 检查API调用是否成功
             if not api_result.get("success", False):
-                error_msg = api_result.get("error", "未知错误")
+                error_msg = api_result.get("error", t('tools.unknownError'))
                 logger.warning(t("console.interviewApiReturnedFailure", error=error_msg))
-                result.summary = f"采访API调用失败：{error_msg}。请检查OASIS模拟环境状态。"
+                result.summary = t('tools.interviewApiFailed', error=error_msg)
                 return result
             
             # Step 5: 解析API返回结果，构建AgentInterview对象
@@ -1398,7 +1398,7 @@ class ZepToolsService:
             for i, agent_idx in enumerate(selected_indices):
                 agent = selected_agents[i]
                 agent_name = agent.get("realname", agent.get("username", f"Agent_{agent_idx}"))
-                agent_role = agent.get("profession", "未知")
+                agent_role = agent.get("profession", t('tools.unknown'))
                 agent_bio = agent.get("bio", "")
                 
                 # 获取该Agent在两个平台的采访结果
@@ -1460,13 +1460,13 @@ class ZepToolsService:
         except ValueError as e:
             # 模拟环境未运行
             logger.warning(t("console.interviewApiCallFailed", error=e))
-            result.summary = f"采访失败：{str(e)}。模拟环境可能已关闭，请确保OASIS环境正在运行。"
+            result.summary = t('tools.interviewFailedEnv', error=str(e))
             return result
         except Exception as e:
             logger.error(t("console.interviewApiCallException", error=e))
             import traceback
             logger.error(traceback.format_exc())
-            result.summary = f"采访过程发生错误：{str(e)}"
+            result.summary = t('tools.interviewError', error=str(e))
             return result
         
         # Step 6: 生成采访摘要
@@ -1537,7 +1537,7 @@ class ZepToolsService:
                             "username": row.get("username", ""),
                             "bio": row.get("description", ""),
                             "persona": row.get("user_char", ""),
-                            "profession": "未知"
+                            "profession": t('tools.unknown')
                         })
                 logger.info(t("console.loadedTwitterProfiles", count=len(profiles)))
                 return profiles
@@ -1610,7 +1610,7 @@ class ZepToolsService:
             )
             
             selected_indices = response.get("selected_indices", [])[:max_agents]
-            reasoning = response.get("reasoning", "基于相关性自动选择")
+            reasoning = response.get("reasoning", t('tools.autoSelectReason'))
             
             # 获取选中的Agent完整信息
             selected_agents = []
@@ -1627,7 +1627,7 @@ class ZepToolsService:
             # 降级：选择前N个
             selected = profiles[:max_agents]
             indices = list(range(min(max_agents, len(profiles))))
-            return selected, indices, "使用默认选择策略"
+            return selected, indices, t('tools.defaultSelectReason')
     
     def _generate_interview_questions(
         self,
@@ -1668,14 +1668,14 @@ class ZepToolsService:
                 temperature=0.5
             )
             
-            return response.get("questions", [f"关于{interview_requirement}，您有什么看法？"])
+            return response.get("questions", [t('tools.defaultQuestion', topic=interview_requirement)])
             
         except Exception as e:
             logger.warning(t("console.generateInterviewQuestionsFailed", error=e))
             return [
-                f"关于{interview_requirement}，您的观点是什么？",
-                "这件事对您或您所代表的群体有什么影响？",
-                "您认为应该如何解决或改进这个问题？"
+                t('tools.fallbackQuestion1', topic=interview_requirement),
+                t('tools.fallbackQuestion2'),
+                t('tools.fallbackQuestion3')
             ]
     
     def _generate_interview_summary(
@@ -1686,7 +1686,7 @@ class ZepToolsService:
         """生成采访摘要"""
         
         if not interviews:
-            return "未完成任何采访"
+            return t('tools.noInterviewsDone')
         
         # 收集所有采访内容
         interview_texts = []
@@ -1731,4 +1731,8 @@ class ZepToolsService:
         except Exception as e:
             logger.warning(t("console.generateInterviewSummaryFailed", error=e))
             # 降级：简单拼接
-            return f"共采访了{len(interviews)}位受访者，包括：" + "、".join([i.agent_name for i in interviews])
+            return t(
+                'tools.interviewSummaryFallback',
+                count=len(interviews),
+                names=t('tools.nameSeparator').join([i.agent_name for i in interviews]),
+            )

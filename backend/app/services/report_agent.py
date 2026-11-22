@@ -909,7 +909,7 @@ class ReportAgent:
         self.simulation_id = simulation_id
         self.simulation_requirement = simulation_requirement
         
-        self.llm = llm_client or LLMClient()
+        self.llm = llm_client or LLMClient(thinking=True)  # informe con razonamiento (decisión de producto 11-22)
         self.zep_tools = zep_tools or ZepToolsService()
         
         # 工具定义
@@ -1061,11 +1061,11 @@ class ReportAgent:
                 return json.dumps(result, ensure_ascii=False, indent=2)
             
             else:
-                return f"未知工具: {tool_name}。请使用以下工具之一: insight_forge, panorama_search, quick_search"
+                return t('tools.unknownTool', toolName=tool_name)
                 
         except Exception as e:
             logger.error(t('report.toolExecFailed', toolName=tool_name, error=str(e)))
-            return f"工具执行失败: {str(e)}"
+            return t('tools.toolExecFailed', error=str(e))
     
     # 合法的工具名称集合，用于裸 JSON 兜底解析时校验
     VALID_TOOL_NAMES = {"insight_forge", "panorama_search", "quick_search", "interview_agents"}
@@ -1233,7 +1233,7 @@ class ReportAgent:
                 ))
             
             outline = ReportOutline(
-                title=response.get("title", "模拟分析报告"),
+                title=response.get("title", t('tools.defaultReportTitle')),
                 summary=response.get("summary", ""),
                 sections=sections
             )
@@ -1248,12 +1248,12 @@ class ReportAgent:
             logger.error(t('report.outlinePlanFailed', error=str(e)))
             # 返回默认大纲（3个章节，作为fallback）
             return ReportOutline(
-                title="未来预测报告",
-                summary="基于模拟预测的未来趋势与风险分析",
+                title=t('tools.fallbackReportTitle'),
+                summary=t('tools.fallbackReportSummary'),
                 sections=[
-                    ReportSection(title="预测场景与核心发现"),
-                    ReportSection(title="人群行为预测分析"),
-                    ReportSection(title="趋势展望与风险提示")
+                    ReportSection(title=t('tools.fallbackSection1')),
+                    ReportSection(title=t('tools.fallbackSection2')),
+                    ReportSection(title=t('tools.fallbackSection3'))
                 ]
             )
     

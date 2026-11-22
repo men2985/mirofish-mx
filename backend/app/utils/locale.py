@@ -25,11 +25,19 @@ def set_locale(locale: str):
     _thread_local.locale = locale
 
 
+# Parche MX (11-22): la app es en español; sin encabezado (o con uno de navegador tipo "es-MX,es;q=0.9") el original
+# caía en chino y así salían informes completos en chino.
+DEFAULT_LOCALE = os.environ.get('MIROFISH_DEFAULT_LOCALE', 'es')
+
+
 def get_locale() -> str:
     if has_request_context():
-        raw = request.headers.get('Accept-Language', 'zh')
-        return raw if raw in _translations else 'zh'
-    return getattr(_thread_local, 'locale', 'zh')
+        raw = (request.headers.get('Accept-Language') or '').strip()
+        if raw in _translations:
+            return raw
+        base = raw.split(',')[0].split(';')[0].split('-')[0].strip().lower()
+        return base if base in _translations else DEFAULT_LOCALE
+    return getattr(_thread_local, 'locale', DEFAULT_LOCALE)
 
 
 def t(key: str, **kwargs) -> str:

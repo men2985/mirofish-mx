@@ -9,7 +9,7 @@
       <div class="header-center">
         <div class="view-switcher">
           <button 
-            v-for="mode in ['graph', 'split', 'workbench']" 
+            v-for="mode in viewModes" 
             :key="mode"
             class="switch-btn"
             :class="{ active: viewMode === mode }"
@@ -21,10 +21,11 @@
       </div>
 
       <div class="header-right">
+        <SaldoBadge />
         <LanguageSwitcher />
         <div class="step-divider"></div>
         <div class="workflow-step">
-          <span class="step-num">Step 2/5</span>
+          <span class="step-num">{{ $t('main.stepProgress', { n: 2 }) }}</span>
           <span class="step-name">{{ $tm('main.stepNames')[1] }}</span>
         </div>
         <div class="step-divider"></div>
@@ -66,13 +67,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GraphPanel from '../components/GraphPanel.vue'
 import Step2EnvSetup from '../components/Step2EnvSetup.vue'
 import { getProject, getGraphData } from '../api/graph'
 import { getSimulation, stopSimulation, getEnvStatus, closeSimulationEnv } from '../api/simulation'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import SaldoBadge from '../components/SaldoBadge.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -85,7 +87,14 @@ const props = defineProps({
 })
 
 // Layout State
-const viewMode = ref('split')
+// Celular (parche MX): un panel a la vez, se abre en Trabajo y no existe "Dividido"
+const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+const viewModes = isMobile ? ['graph', 'workbench'] : ['graph', 'split', 'workbench']
+// Recordar la vista por pantalla (parche MX): iPhone recarga la pestaña al volver de otra app
+const _viewKey = 'mf:view:' + route.path
+const _savedView = (() => { try { return sessionStorage.getItem(_viewKey) } catch (e) { return null } })()
+const viewMode = ref(viewModes.includes(_savedView) ? _savedView : (isMobile ? 'workbench' : 'split'))
+watch(viewMode, (mode) => { try { sessionStorage.setItem(_viewKey, mode) } catch (e) {} })
 
 // Data State
 const currentSimulationId = ref(route.params.simulationId)
@@ -114,9 +123,9 @@ const statusClass = computed(() => {
 })
 
 const statusText = computed(() => {
-  if (currentStatus.value === 'error') return 'Error'
-  if (currentStatus.value === 'completed') return 'Ready'
-  return 'Preparing'
+  if (currentStatus.value === 'error') return t('common.error')
+  if (currentStatus.value === 'completed') return t('common.ready')
+  return t('main.statusPreparing')
 })
 
 // --- Helpers ---
@@ -135,7 +144,7 @@ const updateStatus = (status) => {
 // --- Layout Methods ---
 const toggleMaximize = (target) => {
   if (viewMode.value === target) {
-    viewMode.value = 'split'
+    viewMode.value = isMobile ? 'workbench' : 'split'
   } else {
     viewMode.value = target
   }
@@ -270,10 +279,10 @@ const loadSimulationData = async () => {
   }
 }
 
-const loadGraph = async (graphId) => {
+const loadGraph = async (graphId, refresh = false) => {
   graphLoading.value = true
   try {
-    const res = await getGraphData(graphId)
+    const res = await getGraphData(graphId, refresh)
     if (res.success) {
       graphData.value = res.data
       addLog(t('log.graphDataLoadSuccess'))
@@ -287,7 +296,7 @@ const loadGraph = async (graphId) => {
 
 const refreshGraph = () => {
   if (projectData.value?.graph_id) {
-    loadGraph(projectData.value.graph_id)
+    loadGraph(projectData.value.graph_id, true)
   }
 }
 

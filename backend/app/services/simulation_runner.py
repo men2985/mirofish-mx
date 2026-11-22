@@ -20,7 +20,7 @@ from queue import Queue
 
 from ..config import Config
 from ..utils.logger import get_logger
-from ..utils.locale import get_locale, set_locale
+from ..utils.locale import get_locale, set_locale, t
 from ..utils.zep import (
     ZEP_HTTP_REQUEST_TIMEOUT_SECONDS,
     ZEP_INGESTION_WAIT_TIMEOUT_SECONDS,
@@ -287,15 +287,19 @@ class SimulationRunner:
     
     @classmethod
     def get_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
-        """获取运行状态"""
-        if simulation_id in cls._run_states:
+        """获取运行状态
+
+        F3b (parche MX): la simulación corre en el worker. Solo el proceso dueño (el que tiene el subproceso en
+        _processes) usa la copia en memoria; cualquier otro (la API) relee el archivo, que el dueño reescribe cada 2 s.
+        """
+        if simulation_id in cls._run_states and simulation_id in cls._processes:
             return cls._run_states[simulation_id]
-        
-        # 尝试从文件加载
+
         state = cls._load_run_state(simulation_id)
         if state:
             cls._run_states[simulation_id] = state
-        return state
+            return state
+        return cls._run_states.get(simulation_id)
     
     @classmethod
     def _load_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
@@ -362,9 +366,12 @@ class SimulationRunner:
         
         data = state.to_detail_dict()
         
-        with open(state_file, 'w', encoding='utf-8') as f:
+        # Escritura atómica (F3b): la API lee este archivo mientras el worker lo reescribe
+        tmp_file = f"{state_file}.{os.getpid()}.{threading.get_ident()}.tmp"
+        with open(tmp_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        
+        os.replace(tmp_file, state_file)
+
         cls._run_states[state.simulation_id] = state
     
     @classmethod
@@ -394,7 +401,7 @@ class SimulationRunner:
         config_path = os.path.join(sim_dir, "simulation_config.json")
         
         if not os.path.exists(config_path):
-            raise ValueError(f"模拟配置不存在，请先调用 /prepare 接口")
+            raise ValueError(t('api.configNotFound'))
         
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -434,13 +441,13 @@ class SimulationRunner:
             if (
                 existing and existing.runner_status in active_statuses
             ) or ZepGraphMemoryManager.get_updater(simulation_id) is not None:
-                raise ValueError(f"模拟已在运行或结束处理中: {simulation_id}")
+                raise ValueError(t('api.simAlreadyRunning', id=simulation_id))
             cls._save_run_state(state)
         
         # 如果启用图谱记忆更新，创建更新器
         if enable_graph_memory_update:
             if not graph_id:
-                raise ValueError("启用图谱记忆更新时必须提供 graph_id")
+                raise ValueError(t('api.graphIdRequiredForMemory'))
             
             try:
                 ZepGraphMemoryManager.create_updater(simulation_id, graph_id)
@@ -450,7 +457,7 @@ class SimulationRunner:
                 logger.error(f"创建图谱记忆更新器失败: {e}")
                 cls._graph_memory_enabled[simulation_id] = False
                 state.runner_status = RunnerStatus.FAILED
-                state.error = f"Zep图谱更新器初始化失败: {e}"
+                state.error = t('api.graphUpdaterInitFailed', error=e)
                 with cls._finalization_lock(simulation_id):
                     cls._save_run_state(state)
                     cls._sync_simulation_status(
@@ -487,9 +494,9 @@ class SimulationRunner:
             state.runner_status = RunnerStatus.FAILED
             state.twitter_running = False
             state.reddit_running = False
-            state.error = f"脚本不存在: {script_path}"
+            state.error = t('api.scriptFileNotFound', name=script_path)
             if cleanup_error is not None:
-                state.error += f"; Zep图谱写入清理失败: {cleanup_error}"
+                state.error += "; " + t('api.zepCleanupFailed', error=cleanup_error)
             with cls._finalization_lock(simulation_id):
                 cls._save_run_state(state)
                 cls._sync_simulation_status(
@@ -582,7 +589,7 @@ class SimulationRunner:
                 try:
                     cls._terminate_process(process, simulation_id)
                 except Exception as error:
-                    cleanup_errors.append(f"子进程终止失败: {error}")
+                    cleanup_errors.append(t('api.processTerminateFailed', error=error))
             cls._processes.pop(simulation_id, None)
             cls._monitor_threads.pop(simulation_id, None)
             cls._action_queues.pop(simulation_id, None)
@@ -592,13 +599,13 @@ class SimulationRunner:
                 try:
                     main_log_file.close()
                 except Exception as error:
-                    cleanup_errors.append(f"日志关闭失败: {error}")
+                    cleanup_errors.append(t('api.logCloseFailed', error=error))
             if cls._graph_memory_enabled.get(simulation_id, False):
                 try:
                     ZepGraphMemoryManager.stop_updater(simulation_id)
                     cls._graph_memory_enabled.pop(simulation_id, None)
                 except Exception as error:
-                    cleanup_errors.append(f"Zep图谱写入清理失败: {error}")
+                    cleanup_errors.append(t('api.zepCleanupFailed', error=error))
             state.runner_status = RunnerStatus.FAILED
             state.twitter_running = False
             state.reddit_running = False
@@ -700,8 +707,8 @@ class SimulationRunner:
                                     error_info = f.read()[-2000:]
                         except Exception:
                             pass
-                        error_message = (
-                            f"进程退出码: {exit_code}, 错误: {error_info}"
+                        error_message = t(
+                            'api.processExitError', code=exit_code, error=error_info
                         )
 
                     state.twitter_running = False
@@ -727,7 +734,7 @@ class SimulationRunner:
                         except Exception as error:
                             logger.error(f"停止图谱记忆更新器失败: {error}")
                             desired_status = RunnerStatus.FAILED
-                            error_message = f"Zep图谱写入未完整完成: {error}"
+                            error_message = t('api.zepWriteIncomplete', error=error)
 
                     state.runner_status = desired_status
                     state.error = error_message
@@ -961,13 +968,70 @@ class SimulationRunner:
                 os.killpg(pgid, signal.SIGKILL)
                 process.wait(timeout=5)
     
+    STOP_REQUEST_FILE = "stop_request.json"
+
+    @classmethod
+    def queued_state(cls, simulation_id: str, max_rounds: Optional[int] = None) -> SimulationRunState:
+        """Estado "iniciando" (sin guardar) mientras la simulación espera en la cola del worker (F3b)."""
+        total_rounds, total_hours = 0, 0
+        try:
+            with open(os.path.join(cls.RUN_STATE_DIR, simulation_id, "simulation_config.json"), encoding='utf-8') as f:
+                tc = json.load(f).get("time_config", {})
+            total_hours = tc.get("total_simulation_hours", 72)
+            total_rounds = int(total_hours * 60 / (tc.get("minutes_per_round", 30) or 30))
+            if max_rounds:
+                total_rounds = min(total_rounds, int(max_rounds))
+        except Exception:  # noqa: BLE001
+            pass
+        return SimulationRunState(
+            simulation_id=simulation_id,
+            runner_status=RunnerStatus.STARTING,
+            total_rounds=total_rounds,
+            total_simulation_hours=total_hours,
+        )
+
+    @classmethod
+    def request_remote_stop(cls, simulation_id: str) -> None:
+        """Pide al worker dueño que detenga la simulación (archivo en el volumen compartido)."""
+        path = os.path.join(cls.RUN_STATE_DIR, simulation_id, cls.STOP_REQUEST_FILE)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({"requested_at": datetime.now().isoformat(), "pid": os.getpid()}, f)
+
+    @classmethod
+    def take_stop_request(cls, simulation_id: str) -> bool:
+        """Lo usa el worker: True si hay una petición de detener pendiente (y la consume)."""
+        path = os.path.join(cls.RUN_STATE_DIR, simulation_id, cls.STOP_REQUEST_FILE)
+        try:
+            os.remove(path)
+            return True
+        except FileNotFoundError:
+            return False
+
+    @classmethod
+    def _stop_remote(cls, simulation_id: str, timeout: float = 90.0) -> SimulationRunState:
+        cls.request_remote_stop(simulation_id)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            time.sleep(1)
+            state = cls.get_run_state(simulation_id)
+            if state and state.runner_status in (RunnerStatus.STOPPED, RunnerStatus.COMPLETED):
+                return state
+            if state and state.runner_status == RunnerStatus.FAILED:
+                raise RuntimeError(state.error or t('api.simStopFailed'))
+        raise SimulationStopPending(t('api.simStillStopping', seconds=f"{timeout:.0f}"))
+
     @classmethod
     def stop_simulation(cls, simulation_id: str) -> SimulationRunState:
         """停止模拟"""
+        if simulation_id not in cls._processes:
+            from ..models.task import TaskManager
+            if TaskManager().active_job_for('simulation_run', simulation_id):
+                # F3b: el subproceso vive en el worker; detenerlo aquí solo cambiaría el archivo de estado
+                return cls._stop_remote(simulation_id)
         with cls._finalization_lock(simulation_id):
             state = cls.get_run_state(simulation_id)
             if not state:
-                raise ValueError(f"模拟不存在: {simulation_id}")
+                raise ValueError(t('api.simulationNotFound', id=simulation_id))
             if state.runner_status == RunnerStatus.STOPPED:
                 return state
 
@@ -989,7 +1053,7 @@ class SimulationRunner:
                 and not retrying_finalization
             ):
                 raise ValueError(
-                    f"模拟未在运行: {simulation_id}, status={state.runner_status}"
+                    t('api.simNotRunning', id=simulation_id, status=f"{state.runner_status}")
                 )
 
             state.runner_status = RunnerStatus.STOPPING
@@ -1036,7 +1100,7 @@ class SimulationRunner:
                 # leave the observable state as STOPPING and let polling expose
                 # the eventual STOPPED/FAILED result.
                 raise SimulationStopPending(
-                    f"模拟仍在停止中，图谱写入未在 {wait_timeout:.0f}s 内完成"
+                    t('api.simStillStopping', seconds=f"{wait_timeout:.0f}")
                 )
         else:
             # Restart recovery or tests may have no monitor thread. Complete
@@ -1052,7 +1116,7 @@ class SimulationRunner:
                         state.twitter_running = False
                         state.reddit_running = False
                         state.completed_at = datetime.now().isoformat()
-                        state.error = f"Zep图谱写入未完整完成: {error}"
+                        state.error = t('api.zepWriteIncomplete', error=error)
                         cls._save_run_state(state)
                         cls._sync_simulation_status(
                             simulation_id,
@@ -1074,10 +1138,10 @@ class SimulationRunner:
 
         state = cls.get_run_state(simulation_id) or state
         if state.runner_status == RunnerStatus.FAILED:
-            raise RuntimeError(state.error or "模拟停止失败")
+            raise RuntimeError(state.error or t('api.simStopFailed'))
         if state.runner_status != RunnerStatus.STOPPED:
             raise RuntimeError(
-                f"模拟停止未达到终态: {simulation_id}, status={state.runner_status}"
+                t('api.simStopNotTerminal', id=simulation_id, status=f"{state.runner_status}")
             )
 
         logger.info(f"模拟已停止: {simulation_id}")
@@ -1389,7 +1453,7 @@ class SimulationRunner:
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         
         if not os.path.exists(sim_dir):
-            return {"success": True, "message": "模拟目录不存在，无需清理"}
+            return {"success": True, "message": t('api.simDirMissingNoCleanup')}
         
         cleaned_files = []
         errors = []
@@ -1416,7 +1480,7 @@ class SimulationRunner:
                     os.remove(file_path)
                     cleaned_files.append(filename)
                 except Exception as e:
-                    errors.append(f"删除 {filename} 失败: {str(e)}")
+                    errors.append(t('api.deleteFileFailed', name=filename, error=str(e)))
         
         # 清理平台目录中的动作日志
         for dir_name in dirs_to_clean:
@@ -1428,7 +1492,7 @@ class SimulationRunner:
                         os.remove(actions_file)
                         cleaned_files.append(f"{dir_name}/actions.jsonl")
                     except Exception as e:
-                        errors.append(f"删除 {dir_name}/actions.jsonl 失败: {str(e)}")
+                        errors.append(t('api.deleteFileFailed', name=f"{dir_name}/actions.jsonl", error=str(e)))
         
         # 清理内存中的运行状态
         if simulation_id in cls._run_states:
@@ -1721,12 +1785,12 @@ class SimulationRunner:
         """
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         if not os.path.exists(sim_dir):
-            raise ValueError(f"模拟不存在: {simulation_id}")
+            raise ValueError(t('api.simulationNotFound', id=simulation_id))
 
         ipc_client = SimulationIPCClient(sim_dir)
 
         if not ipc_client.check_env_alive():
-            raise ValueError(f"模拟环境未运行或已关闭，无法执行Interview: {simulation_id}")
+            raise ValueError(t('api.envNotRunningInterview', id=simulation_id))
 
         logger.info(f"发送Interview命令: simulation_id={simulation_id}, agent_id={agent_id}, platform={platform}")
 
@@ -1783,12 +1847,12 @@ class SimulationRunner:
         """
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         if not os.path.exists(sim_dir):
-            raise ValueError(f"模拟不存在: {simulation_id}")
+            raise ValueError(t('api.simulationNotFound', id=simulation_id))
 
         ipc_client = SimulationIPCClient(sim_dir)
 
         if not ipc_client.check_env_alive():
-            raise ValueError(f"模拟环境未运行或已关闭，无法执行Interview: {simulation_id}")
+            raise ValueError(t('api.envNotRunningInterview', id=simulation_id))
 
         logger.info(f"发送批量Interview命令: simulation_id={simulation_id}, count={len(interviews)}, platform={platform}")
 
@@ -1840,19 +1904,19 @@ class SimulationRunner:
         """
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         if not os.path.exists(sim_dir):
-            raise ValueError(f"模拟不存在: {simulation_id}")
+            raise ValueError(t('api.simulationNotFound', id=simulation_id))
 
         # 从配置文件获取所有Agent信息
         config_path = os.path.join(sim_dir, "simulation_config.json")
         if not os.path.exists(config_path):
-            raise ValueError(f"模拟配置不存在: {simulation_id}")
+            raise ValueError(t('api.simConfigNotFoundId', id=simulation_id))
 
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
 
         agent_configs = config.get("agent_configs", [])
         if not agent_configs:
-            raise ValueError(f"模拟配置中没有Agent: {simulation_id}")
+            raise ValueError(t('api.noAgentsInConfig', id=simulation_id))
 
         # 构建批量采访列表
         interviews = []
@@ -1893,14 +1957,14 @@ class SimulationRunner:
         """
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         if not os.path.exists(sim_dir):
-            raise ValueError(f"模拟不存在: {simulation_id}")
+            raise ValueError(t('api.simulationNotFound', id=simulation_id))
         
         ipc_client = SimulationIPCClient(sim_dir)
         
         if not ipc_client.check_env_alive():
             return {
                 "success": True,
-                "message": "环境已经关闭"
+                "message": t('api.envAlreadyClosed')
             }
         
         logger.info(f"发送关闭环境命令: simulation_id={simulation_id}")
@@ -1910,7 +1974,7 @@ class SimulationRunner:
             
             return {
                 "success": response.status.value == "completed",
-                "message": "环境关闭命令已发送",
+                "message": t('api.envCloseSent'),
                 "result": response.result,
                 "timestamp": response.timestamp
             }
@@ -1918,7 +1982,7 @@ class SimulationRunner:
             # 超时可能是因为环境正在关闭
             return {
                 "success": True,
-                "message": "环境关闭命令已发送（等待响应超时，环境可能正在关闭）"
+                "message": t('api.envCloseSentTimeout')
             }
     
     @classmethod

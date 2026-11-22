@@ -18,7 +18,14 @@
     </div>
 
     <!-- 卡片容器（只在有项目时显示） -->
-    <div v-if="projects.length > 0" class="cards-container" :class="{ expanded: isExpanded }" :style="containerStyle">
+    <div
+      v-if="projects.length > 0"
+      ref="sliderEl"
+      class="cards-container"
+      :class="{ expanded: isExpanded, slider: isMobile }"
+      :style="containerStyle"
+      @scroll.passive="onSliderScroll"
+    >
       <div 
         v-for="(project, index) in projects" 
         :key="project.simulation_id"
@@ -99,6 +106,14 @@
       </div>
     </div>
 
+    <!-- Celular: indicador del carrusel (parche MX) -->
+    <div v-if="isMobile && projects.length > 1" class="slider-indicator" aria-hidden="true">
+      <span class="slider-count">{{ activeSlide + 1 }} / {{ projects.length }}</span>
+      <span v-if="projects.length <= 12" class="slider-dots">
+        <span v-for="(p, i) in projects" :key="p.simulation_id" class="slider-dot" :class="{ on: i === activeSlide }"></span>
+      </span>
+    </div>
+
     <!-- 加载状态 -->
     <div v-if="loading" class="loading-state">
       <span class="loading-spinner"></span>
@@ -157,7 +172,7 @@
                 @click="goToProject"
                 :disabled="!selectedProject.project_id"
               >
-                <span class="btn-step">Step1</span>
+                <span class="btn-step">{{ $t('history.stepLabel', { n: 1 }) }}</span>
                 <span class="btn-icon">◇</span>
                 <span class="btn-text">{{ $t('history.step1Button') }}</span>
               </button>
@@ -165,7 +180,7 @@
                 class="modal-btn btn-simulation" 
                 @click="goToSimulation"
               >
-                <span class="btn-step">Step2</span>
+                <span class="btn-step">{{ $t('history.stepLabel', { n: 2 }) }}</span>
                 <span class="btn-icon">◈</span>
                 <span class="btn-text">{{ $t('history.step2Button') }}</span>
               </button>
@@ -174,7 +189,7 @@
                 @click="goToReport"
                 :disabled="!selectedProject.report_id"
               >
-                <span class="btn-step">Step4</span>
+                <span class="btn-step">{{ $t('history.stepLabel', { n: 4 }) }}</span>
                 <span class="btn-icon">◆</span>
                 <span class="btn-text">{{ $t('history.step4Button') }}</span>
               </button>
@@ -205,6 +220,19 @@ const projects = ref([])
 const loading = ref(true)
 const isExpanded = ref(false)
 const hoveringCard = ref(null)
+// Celular (parche MX): carrusel horizontal nativo en vez del abanico animado, que no deja deslizar
+const MOBILE_QUERY = '(max-width: 768px)'
+const isMobile = ref(typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches)
+const activeSlide = ref(0)
+const sliderEl = ref(null)
+let mobileMql = null
+const onMobileChange = (e) => { isMobile.value = e.matches }
+const onSliderScroll = () => {
+  const el = sliderEl.value
+  if (!isMobile.value || !el || !el.firstElementChild) return
+  const step = el.firstElementChild.getBoundingClientRect().width + 12
+  activeSlide.value = Math.max(0, Math.min(projects.value.length - 1, Math.round(el.scrollLeft / step)))
+}
 const historyContainer = ref(null)
 const selectedProject = ref(null)  // 当前选中的项目（用于弹窗）
 let observer = null
@@ -220,6 +248,7 @@ const CARD_GAP = 24
 
 // 动态计算容器高度样式
 const containerStyle = computed(() => {
+  if (isMobile.value) return {}
   if (!isExpanded.value) {
     // 折叠态：固定高度
     return { minHeight: '420px' }
@@ -240,6 +269,7 @@ const containerStyle = computed(() => {
 
 // 获取卡片样式
 const getCardStyle = (index) => {
+  if (isMobile.value) return {}
   const total = projects.value.length
   
   if (isExpanded.value) {
@@ -547,6 +577,10 @@ watch(() => route.path, (newPath) => {
 })
 
 onMounted(async () => {
+  if (typeof window !== 'undefined') {
+    mobileMql = window.matchMedia(MOBILE_QUERY)
+    mobileMql.addEventListener('change', onMobileChange)
+  }
   // 确保 DOM 渲染完成后再加载数据
   await nextTick()
   await loadHistory()
@@ -563,6 +597,7 @@ onActivated(() => {
 })
 
 onUnmounted(() => {
+  if (mobileMql) mobileMql.removeEventListener('change', onMobileChange)
   // 清理 Intersection Observer
   if (observer) {
     observer.disconnect()
@@ -1017,6 +1052,61 @@ onUnmounted(() => {
   .project-card {
     width: 200px;
   }
+
+  /* Carrusel nativo: desliza con el dedo y se detiene en cada simulación; la siguiente asoma por el borde */
+  .cards-container.slider {
+    display: flex;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 6px 16px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-padding-left: 16px;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    min-height: 0;
+  }
+  .cards-container.slider::-webkit-scrollbar {
+    display: none;
+  }
+  .cards-container.slider .project-card {
+    position: relative;
+    flex: 0 0 84%;
+    width: auto;
+    transform: none;
+    scroll-snap-align: start;
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  }
+  .slider-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: #6B7280;
+    font-variant-numeric: tabular-nums;
+  }
+  .slider-dots {
+    display: inline-flex;
+    gap: 5px;
+  }
+  .slider-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #D1D5DB;
+    transition: background 0.2s ease, transform 0.2s ease;
+  }
+  .slider-dot.on {
+    background: #111827;
+    transform: scale(1.25);
+  }
+}
+@media (max-width: 768px) and (prefers-reduced-motion: reduce) {
+  .slider-dot { transition: none; }
 }
 
 /* ===== 历史回放详情弹窗样式 ===== */

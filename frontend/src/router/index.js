@@ -5,6 +5,8 @@ import SimulationView from '../views/SimulationView.vue'
 import SimulationRunView from '../views/SimulationRunView.vue'
 import ReportView from '../views/ReportView.vue'
 import InteractionView from '../views/InteractionView.vue'
+// Pantalla en vivo (parche MX): se carga aparte para no pesar en el inicio
+const LiveView = () => import('../views/LiveView.vue')
 
 const routes = [
   {
@@ -41,6 +43,11 @@ const routes = [
     name: 'Interaction',
     component: InteractionView,
     props: true
+  },
+  {
+    path: '/en-vivo/:taskId',
+    name: 'Live',
+    component: LiveView
   }
 ]
 

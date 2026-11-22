@@ -49,3 +49,28 @@ export const getReport = (reportId) => {
 export const chatWithReport = (data) => {
   return service.post('/api/report/chat', data)
 }
+
+// ===== Ilustración del informe (parche MX) =====
+const apiBase = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:5001')
+
+export const getIllustration = (reportId) => {
+  return service.get(`/api/report/${reportId}/illustration`)
+}
+
+export const generateIllustration = (reportId, force = false) => {
+  return service.post(`/api/report/${reportId}/illustration`, { force })
+}
+
+export const illustrationImageUrl = (reportId, version) => {
+  const v = version ? `?v=${encodeURIComponent(version)}` : ''
+  return `${apiBase}/api/report/${reportId}/illustration.png${v}`
+}
+
+export const illustrationDownloadUrl = (reportId) => {
+  return `${apiBase}/api/report/${reportId}/illustration.png?download=1`
+}
+
+// ===== Publicación pública del informe (parche MX) =====
+export const getShare = (reportId) => service.get(`/api/report/${reportId}/share`)
+export const createShare = (reportId) => service.post(`/api/report/${reportId}/share`, {})
+export const deleteShare = (reportId) => service.delete(`/api/report/${reportId}/share`)

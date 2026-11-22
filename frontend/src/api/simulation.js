@@ -186,3 +186,23 @@ export const interviewAgents = (data) => {
 export const getSimulationHistory = (limit = 20) => {
   return service.get('/api/simulation/history', { params: { limit } })
 }
+
+/**
+ * Estimación previa a la confirmación (parche MX): estado de la preparación, agentes, créditos por paso y saldo.
+ * @param {string} simulationId
+ * @param {number} [rounds]
+ */
+export const getEstimado = (simulationId, rounds) => {
+  return service.get(`/api/simulation/${simulationId}/estimado`, { params: rounds ? { rounds } : {} })
+}
+
+// Recorrido completo "validar idea" (parche MX): tarifas, lanzar y estado para la pantalla en vivo
+export const getTarifas = () => service.get('/api/simulation/tarifas')
+export const lanzarValidacion = (data) => service.post('/api/simulation/validar', data)
+export const getValidacion = (taskId) => service.get(`/api/simulation/validar/${taskId}`)
+
+// Chat "Afinar tu idea" (parche MX): un turno; FormData con historial (JSON), forzar y archivos opcionales
+export const afinarIdea = (formData) => service({
+  url: '/api/simulation/afinar', method: 'post', data: formData,
+  headers: { 'Content-Type': 'multipart/form-data' }
+})

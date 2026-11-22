@@ -4,9 +4,13 @@
       <span class="panel-title">{{ $t('graph.panelTitle') }}</span>
       <!-- 顶部工具栏 (Internal Top Right) -->
       <div class="header-tools">
+        <div class="mode-switch" role="group" :aria-label="$t('graph.viewMode')">
+          <button type="button" class="mode-btn" :class="{ active: graphMode === '2d' }" :aria-pressed="graphMode === '2d'" @click="graphMode = '2d'">2D</button>
+          <button type="button" class="mode-btn" :class="{ active: graphMode === '3d' }" :aria-pressed="graphMode === '3d'" @click="graphMode = '3d'">3D</button>
+        </div>
         <button class="tool-btn" @click="$emit('refresh')" :disabled="loading" :title="$t('graph.refreshGraph')">
           <span class="icon-refresh" :class="{ 'spinning': loading }">↻</span>
-          <span class="btn-text">Refresh</span>
+          <span class="btn-text">{{ $t('graph.refresh') }}</span>
         </button>
         <button class="tool-btn" @click="$emit('toggle-maximize')" :title="$t('graph.toggleMaximize')">
           <span class="icon-maximize">⛶</span>
@@ -17,7 +21,9 @@
     <div class="graph-container" ref="graphContainer">
       <!-- 图谱可视化 -->
       <div v-if="graphData" class="graph-view">
-        <svg ref="graphSvg" class="graph-svg"></svg>
+        <svg v-show="graphMode === '2d'" ref="graphSvg" class="graph-svg"></svg>
+        <!-- Vista 3D (parche MX): WebGL, mismos datos, colores y ficha que el 2D -->
+        <div v-show="graphMode === '3d'" ref="graph3dEl" class="graph-3d"></div>
         
         <!-- 构建中/模拟中提示 -->
         <div v-if="currentPhase === 1 || isSimulating" class="graph-building-hint">
@@ -61,7 +67,7 @@
           <!-- 节点详情 -->
           <div v-if="selectedItem.type === 'node'" class="detail-content">
             <div class="detail-row">
-              <span class="detail-label">Name:</span>
+              <span class="detail-label">{{ $t('graph.name') }}</span>
               <span class="detail-value">{{ selectedItem.data.name }}</span>
             </div>
             <div class="detail-row">
@@ -69,30 +75,30 @@
               <span class="detail-value uuid-text">{{ selectedItem.data.uuid }}</span>
             </div>
             <div class="detail-row" v-if="selectedItem.data.created_at">
-              <span class="detail-label">Created:</span>
+              <span class="detail-label">{{ $t('graph.created') }}</span>
               <span class="detail-value">{{ formatDateTime(selectedItem.data.created_at) }}</span>
             </div>
             
             <!-- Properties -->
             <div class="detail-section" v-if="selectedItem.data.attributes && Object.keys(selectedItem.data.attributes).length > 0">
-              <div class="section-title">Properties:</div>
+              <div class="section-title">{{ $t('graph.properties') }}</div>
               <div class="properties-list">
                 <div v-for="(value, key) in selectedItem.data.attributes" :key="key" class="property-item">
                   <span class="property-key">{{ key }}:</span>
-                  <span class="property-value">{{ value || 'None' }}</span>
+                  <span class="property-value">{{ value || $t('common.none') }}</span>
                 </div>
               </div>
             </div>
             
             <!-- Summary -->
             <div class="detail-section" v-if="selectedItem.data.summary">
-              <div class="section-title">Summary:</div>
+              <div class="section-title">{{ $t('graph.summary') }}</div>
               <div class="summary-text">{{ selectedItem.data.summary }}</div>
             </div>
             
             <!-- Labels -->
             <div class="detail-section" v-if="selectedItem.data.labels && selectedItem.data.labels.length > 0">
-              <div class="section-title">Labels:</div>
+              <div class="section-title">{{ $t('graph.labels') }}</div>
               <div class="labels-list">
                 <span v-for="label in selectedItem.data.labels" :key="label" class="label-tag">
                   {{ label }}
@@ -106,8 +112,8 @@
             <!-- 自环组详情 -->
             <template v-if="selectedItem.data.isSelfLoopGroup">
               <div class="edge-relation-header self-loop-header">
-                {{ selectedItem.data.source_name }} - Self Relations
-                <span class="self-loop-count">{{ selectedItem.data.selfLoopCount }} items</span>
+                {{ selectedItem.data.source_name }} - {{ $t('graph.selfRelations') }}
+                <span class="self-loop-count">{{ $t('graph.itemsCount', { count: selectedItem.data.selfLoopCount }) }}</span>
               </div>
               
               <div class="self-loop-list">
@@ -132,19 +138,19 @@
                       <span class="detail-value uuid-text">{{ loop.uuid }}</span>
                     </div>
                     <div class="detail-row" v-if="loop.fact">
-                      <span class="detail-label">Fact:</span>
+                      <span class="detail-label">{{ $t('graph.fact') }}</span>
                       <span class="detail-value fact-text">{{ loop.fact }}</span>
                     </div>
                     <div class="detail-row" v-if="loop.fact_type">
-                      <span class="detail-label">Type:</span>
+                      <span class="detail-label">{{ $t('graph.type') }}</span>
                       <span class="detail-value">{{ loop.fact_type }}</span>
                     </div>
                     <div class="detail-row" v-if="loop.created_at">
-                      <span class="detail-label">Created:</span>
+                      <span class="detail-label">{{ $t('graph.created') }}</span>
                       <span class="detail-value">{{ formatDateTime(loop.created_at) }}</span>
                     </div>
                     <div v-if="loop.episodes && loop.episodes.length > 0" class="self-loop-episodes">
-                      <span class="detail-label">Episodes:</span>
+                      <span class="detail-label">{{ $t('graph.episodes') }}</span>
                       <div class="episodes-list compact">
                         <span v-for="ep in loop.episodes" :key="ep" class="episode-tag small">{{ ep }}</span>
                       </div>
@@ -165,21 +171,21 @@
                 <span class="detail-value uuid-text">{{ selectedItem.data.uuid }}</span>
               </div>
               <div class="detail-row">
-                <span class="detail-label">Label:</span>
+                <span class="detail-label">{{ $t('graph.label') }}</span>
                 <span class="detail-value">{{ selectedItem.data.name || 'RELATED_TO' }}</span>
               </div>
               <div class="detail-row">
-                <span class="detail-label">Type:</span>
-                <span class="detail-value">{{ selectedItem.data.fact_type || 'Unknown' }}</span>
+                <span class="detail-label">{{ $t('graph.type') }}</span>
+                <span class="detail-value">{{ selectedItem.data.fact_type || $t('common.unknown') }}</span>
               </div>
               <div class="detail-row" v-if="selectedItem.data.fact">
-                <span class="detail-label">Fact:</span>
+                <span class="detail-label">{{ $t('graph.fact') }}</span>
                 <span class="detail-value fact-text">{{ selectedItem.data.fact }}</span>
               </div>
               
               <!-- Episodes -->
               <div class="detail-section" v-if="selectedItem.data.episodes && selectedItem.data.episodes.length > 0">
-                <div class="section-title">Episodes:</div>
+                <div class="section-title">{{ $t('graph.episodes') }}</div>
                 <div class="episodes-list">
                   <span v-for="ep in selectedItem.data.episodes" :key="ep" class="episode-tag">
                     {{ ep }}
@@ -188,11 +194,11 @@
               </div>
               
               <div class="detail-row" v-if="selectedItem.data.created_at">
-                <span class="detail-label">Created:</span>
+                <span class="detail-label">{{ $t('graph.created') }}</span>
                 <span class="detail-value">{{ formatDateTime(selectedItem.data.created_at) }}</span>
               </div>
               <div class="detail-row" v-if="selectedItem.data.valid_at">
-                <span class="detail-label">Valid From:</span>
+                <span class="detail-label">{{ $t('graph.validFrom') }}</span>
                 <span class="detail-value">{{ formatDateTime(selectedItem.data.valid_at) }}</span>
               </div>
             </template>
@@ -214,9 +220,11 @@
     </div>
 
     <!-- 底部图例 (Bottom Left) -->
-    <div v-if="graphData && entityTypes.length" class="graph-legend">
-      <span class="legend-title">Entity Types</span>
-      <div class="legend-items">
+    <div v-if="graphData && entityTypes.length" class="graph-legend" :class="{ 'is-collapsed': !legendOpen }">
+      <button type="button" class="legend-title" :aria-expanded="legendOpen" @click="legendOpen = !legendOpen">
+        {{ $t('graph.entityTypes') }} ({{ entityTypes.length }})
+      </button>
+      <div v-show="legendOpen" class="legend-items">
         <div class="legend-item" v-for="type in entityTypes" :key="type.name">
           <span class="legend-dot" :style="{ background: type.color }"></span>
           <span class="legend-label">{{ type.name }}</span>
@@ -225,12 +233,12 @@
     </div>
     
     <!-- 显示边标签开关 -->
-    <div v-if="graphData" class="edge-labels-toggle">
+    <div v-if="graphData && graphMode === '2d'" class="edge-labels-toggle">
       <label class="toggle-switch">
         <input type="checkbox" v-model="showEdgeLabels" />
         <span class="slider"></span>
       </label>
-      <span class="toggle-label">Show Edge Labels</span>
+      <span class="toggle-label">{{ $t('graph.showEdgeLabels') }}</span>
     </div>
   </div>
 </template>
@@ -238,6 +246,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import * as d3 from 'd3'
+import { useI18n } from 'vue-i18n'
+
+const { t, locale } = useI18n()
 
 const props = defineProps({
   graphData: Object,
@@ -251,7 +262,16 @@ const emit = defineEmits(['refresh', 'toggle-maximize'])
 const graphContainer = ref(null)
 const graphSvg = ref(null)
 const selectedItem = ref(null)
-const showEdgeLabels = ref(true) // 默认显示边标签
+// Celular (parche MX): grafo legible en 390 px. Sin etiquetas de relación, leyenda plegada,
+// nombres de nodo solo al acercar y encuadre automático al terminar de acomodarse.
+const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+const MOBILE_LABEL_ZOOM = 2
+const showEdgeLabels = ref(!isMobile) // en celular, apagadas por defecto
+const legendOpen = ref(!isMobile)
+// Modo 2D/3D recordado por dispositivo; en celular arranca en 3D (WebGL es más fluido que miles de elementos SVG)
+const graphMode = ref((() => { try { return localStorage.getItem('mf:graphMode') } catch (e) { return null } })() || (isMobile ? '3d' : '2d'))
+const graph3dEl = ref(null)
+let graph3d = null
 const expandedSelfLoops = ref(new Set()) // 展开的自环项
 const showSimulationFinishedHint = ref(false) // 模拟结束后的提示
 const wasSimulating = ref(false) // 追踪之前是否在模拟中
@@ -303,7 +323,7 @@ const formatDateTime = (dateStr) => {
   if (!dateStr) return ''
   try {
     const date = new Date(dateStr)
-    return date.toLocaleString('en-US', { 
+    return date.toLocaleString(locale.value, { 
       month: 'short', 
       day: 'numeric', 
       year: 'numeric',
@@ -324,8 +344,11 @@ const closeDetailPanel = () => {
 let currentSimulation = null
 let linkLabelsRef = null
 let linkLabelBgRef = null
+let placeLinkLabelsRef = null
 
 const renderGraph = () => {
+  if (graphMode.value === '3d') { render3D(); return }
+  dispose3D()
   if (!graphSvg.value || !props.graphData) return
   
   // 停止之前的仿真
@@ -355,7 +378,7 @@ const renderGraph = () => {
   
   const nodes = nodesData.map(n => ({
     id: n.uuid,
-    name: n.name || 'Unnamed',
+    name: n.name || t('graph.unnamed'),
     type: n.labels?.find(l => l !== 'Entity') || 'Entity',
     rawData: n
   }))
@@ -403,13 +426,13 @@ const renderGraph = () => {
       processedSelfLoopNodes.add(e.source_node_uuid)
       
       const allSelfLoops = selfLoopEdges[e.source_node_uuid]
-      const nodeName = nodeMap[e.source_node_uuid]?.name || 'Unknown'
+      const nodeName = nodeMap[e.source_node_uuid]?.name || t('common.unknown')
       
       edges.push({
         source: e.source_node_uuid,
         target: e.target_node_uuid,
         type: 'SELF_LOOP',
-        name: `Self Relations (${allSelfLoops.length})`,
+        name: `${t('graph.selfRelations')} (${allSelfLoops.length})`,
         curvature: 0,
         isSelfLoop: true,
         rawData: {
@@ -473,13 +496,14 @@ const renderGraph = () => {
     .force('link', d3.forceLink(edges).id(d => d.id).distance(d => {
       // 根据这对节点之间的边数量动态调整距离
       // 基础距离 150，每多一条边增加 40
-      const baseDistance = 150
+      // Celular: distribución compacta para que el grafo quepa en 390 px (parche MX)
+      const baseDistance = isMobile ? 45 : 150
       const edgeCount = d.pairTotal || 1
-      return baseDistance + (edgeCount - 1) * 50
+      return baseDistance + (edgeCount - 1) * (isMobile ? 12 : 50)
     }))
-    .force('charge', d3.forceManyBody().strength(-400))
+    .force('charge', d3.forceManyBody().strength(isMobile ? -70 : -400))
     .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collide', d3.forceCollide(50))
+    .force('collide', d3.forceCollide(isMobile ? 14 : 50))
     // 添加向中心的引力，让独立的节点群聚集到中心区域
     .force('x', d3.forceX(width / 2).strength(0.04))
     .force('y', d3.forceY(height / 2).strength(0.04))
@@ -489,9 +513,25 @@ const renderGraph = () => {
   const g = svg.append('g')
   
   // Zoom
-  svg.call(d3.zoom().extent([[0, 0], [width, height]]).scaleExtent([0.1, 4]).on('zoom', (event) => {
+  let labelsVisible = !isMobile
+  const zoomBehavior = d3.zoom().extent([[0, 0], [width, height]]).scaleExtent([0.1, 4]).on('zoom', (event) => {
     g.attr('transform', event.transform)
-  }))
+    if (isMobile && nodeLabelsSel) {
+      // Nombres siempre de 11 px en pantalla, sin importar el acercamiento
+      const k = event.transform.k
+      nodeLabelsSel.attr('font-size', (11 / k).toFixed(2) + 'px').attr('dx', 14 / Math.sqrt(k))
+      // Los círculos crecen como la raíz del zoom: al acercar queda aire para leer los nombres
+      if (nodeSel) nodeSel.attr('r', 10 / Math.sqrt(Math.max(1, k))).attr('stroke-width', 2.5 / Math.sqrt(Math.max(1, k)))
+      const show = event.transform.k >= MOBILE_LABEL_ZOOM
+      if (show !== labelsVisible) {
+        labelsVisible = show
+        nodeLabelsSel.style('display', show ? null : 'none')
+      }
+    }
+  })
+  svg.call(zoomBehavior)
+  let nodeLabelsSel = null
+  let nodeSel = null
 
   // Links - 使用 path 支持曲线
   const linkGroup = g.append('g').attr('class', 'links')
@@ -737,32 +777,52 @@ const renderGraph = () => {
     .attr('dy', 4)
     .style('pointer-events', 'none')
     .style('font-family', 'system-ui, sans-serif')
+    .style('display', isMobile ? 'none' : null)
+  nodeLabelsSel = nodeLabels
+  nodeSel = node
 
-  simulation.on('tick', () => {
-    // 更新曲线路径
-    link.attr('d', d => getLinkPath(d))
-    
-    // 更新边标签位置（无旋转，水平显示更清晰）
+  // Las etiquetas de relación solo se recolocan si se ven: con miles de aristas, getBBox() en cada cuadro
+  // era el mayor costo del grafo aunque estuvieran ocultas.
+  const placeLinkLabels = () => {
     linkLabels.each(function(d) {
       const mid = getLinkMidpoint(d)
-      d3.select(this)
-        .attr('x', mid.x)
-        .attr('y', mid.y)
-        .attr('transform', '') // 移除旋转，保持水平
+      d3.select(this).attr('x', mid.x).attr('y', mid.y).attr('transform', '')
     })
-    
-    // 更新边标签背景
     linkLabelBg.each(function(d, i) {
       const mid = getLinkMidpoint(d)
-      const textEl = linkLabels.nodes()[i]
-      const bbox = textEl.getBBox()
+      const bbox = linkLabels.nodes()[i].getBBox()
       d3.select(this)
         .attr('x', mid.x - bbox.width / 2 - 4)
         .attr('y', mid.y - bbox.height / 2 - 2)
         .attr('width', bbox.width + 8)
         .attr('height', bbox.height + 4)
-        .attr('transform', '') // 移除旋转
+        .attr('transform', '')
     })
+  }
+  placeLinkLabelsRef = placeLinkLabels
+
+  // Celular: al terminar de acomodarse, encuadrar todo el grafo en la pantalla (una sola vez)
+  let fitted = false
+  simulation.on('end', () => {
+    if (!isMobile || fitted || !nodes.length) return
+    fitted = true
+    // Encuadre robusto: ignora el 3 % de nodos sueltos en cada extremo
+    const xs = nodes.map(n => n.x).sort((a, b) => a - b), ys = nodes.map(n => n.y).sort((a, b) => a - b)
+    const q = (arr, p) => arr[Math.min(arr.length - 1, Math.max(0, Math.round((arr.length - 1) * p)))]
+    const minX = q(xs, 0.03), maxX = q(xs, 0.97), minY = q(ys, 0.03), maxY = q(ys, 0.97)
+    const pad = 24
+    const k = Math.min(4, Math.max(0.1, Math.min((width - pad * 2) / Math.max(1, maxX - minX), (height - pad * 2) / Math.max(1, maxY - minY))))
+    const tx = width / 2 - k * (minX + maxX) / 2
+    const ty = height / 2 - k * (minY + maxY) / 2
+    svg.transition().duration(400).call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(k))
+  })
+  if (isMobile) simulation.alphaDecay(0.05) // se asienta antes: menos batería y CPU
+
+  simulation.on('tick', () => {
+    // 更新曲线路径
+    link.attr('d', d => getLinkPath(d))
+    
+    if (showEdgeLabels.value) placeLinkLabels()
 
     node
       .attr('cx', d => d.x)
@@ -783,6 +843,99 @@ const renderGraph = () => {
   })
 }
 
+// ---------- Vista 3D (parche MX) ----------
+const dispose3D = () => {
+  if (graph3d) {
+    try { graph3d.pauseAnimation(); graph3d._destructor() } catch (e) {}
+    graph3d = null
+  }
+  if (graph3dEl.value) graph3dEl.value.innerHTML = ''
+}
+
+let render3DToken = 0
+const render3D = async () => {
+  if (!props.graphData || !graph3dEl.value) return
+  // El 2D se detiene y se vacía: no deben correr las dos simulaciones a la vez
+  if (currentSimulation) { currentSimulation.stop(); currentSimulation = null }
+  if (graphSvg.value) d3.select(graphSvg.value).selectAll('*').remove()
+  const token = ++render3DToken
+  const { default: ForceGraph3D } = await import('3d-force-graph')
+  if (token !== render3DToken || graphMode.value !== '3d') return
+
+  const colorOf = {}
+  entityTypes.value.forEach(et => { colorOf[et.name] = et.color })
+  const rawNodes = props.graphData.nodes || []
+  const ids = new Set(rawNodes.map(n => n.uuid))
+  const degree = {}
+  const links = (props.graphData.edges || [])
+    .filter(e => ids.has(e.source_node_uuid) && ids.has(e.target_node_uuid) && e.source_node_uuid !== e.target_node_uuid)
+    .map(e => {
+      degree[e.source_node_uuid] = (degree[e.source_node_uuid] || 0) + 1
+      degree[e.target_node_uuid] = (degree[e.target_node_uuid] || 0) + 1
+      return { source: e.source_node_uuid, target: e.target_node_uuid, name: e.name || e.fact_type || '', rawData: { ...e, source_name: '', target_name: '' } }
+    })
+  const nameById = {}
+  const nodes = rawNodes.map(n => {
+    const type = n.labels?.find(l => l !== 'Entity') || 'Entity'
+    nameById[n.uuid] = n.name || t('graph.unnamed')
+    return { id: n.uuid, name: n.name || t('graph.unnamed'), type, color: colorOf[type] || '#999', rawData: n, deg: degree[n.uuid] || 0 }
+  })
+  links.forEach(l => { l.rawData.source_name = nameById[l.source]; l.rawData.target_name = nameById[l.target] })
+
+  dispose3D()
+  const el = graph3dEl.value
+  let selectedId = null
+  const neighbors = new Set()
+  graph3d = ForceGraph3D({ controlType: 'orbit' })(el)
+    .width(el.clientWidth)
+    .height(el.clientHeight)
+    .backgroundColor('#0f172a')
+    .showNavInfo(false)
+    .graphData({ nodes, links })
+    .nodeId('id')
+    .nodeVal(n => 1 + Math.sqrt(n.deg))
+    .nodeRelSize(isMobile ? 3 : 4)
+    .nodeOpacity(0.95)
+    .nodeResolution(isMobile ? 6 : 10)
+    .nodeColor(n => (!selectedId || n.id === selectedId || neighbors.has(n.id)) ? n.color : 'rgba(148,163,184,0.25)')
+    .nodeLabel(n => `<div style="font:12px system-ui;padding:4px 8px;background:rgba(15,23,42,.92);color:#fff;border-radius:6px">${n.name}<br><span style="opacity:.7">${n.type}</span></div>`)
+    .linkColor(l => (selectedId && (l.source.id === selectedId || l.target.id === selectedId)) ? 'rgba(244,114,182,0.95)' : (selectedId ? 'rgba(226,232,240,0.05)' : 'rgba(226,232,240,0.18)'))
+    .linkWidth(0) // líneas finas: los tubos resaltados pesan y se ven toscos
+    .linkLabel(l => `<div style="font:11px system-ui;padding:3px 6px;background:rgba(15,23,42,.92);color:#fff;border-radius:6px">${l.name}</div>`)
+    .warmupTicks(isMobile ? 30 : 60)
+    .cooldownTicks(isMobile ? 120 : 200)
+    .enableNodeDrag(true)
+    .onNodeClick(n => {
+      selectedId = n.id
+      neighbors.clear()
+      links.forEach(l => { if (l.source.id === n.id) neighbors.add(l.target.id); if (l.target.id === n.id) neighbors.add(l.source.id) })
+      graph3d.nodeColor(graph3d.nodeColor()).linkColor(graph3d.linkColor())
+      selectedItem.value = { type: 'node', data: n.rawData, entityType: n.type, color: n.color }
+      // Acercar la cámara al nodo elegido
+      const dist = isMobile ? 220 : 180
+      const r = Math.hypot(n.x, n.y, n.z) || 1
+      graph3d.cameraPosition({ x: n.x * (1 + dist / r), y: n.y * (1 + dist / r), z: n.z * (1 + dist / r) }, n, 800)
+    })
+    .onLinkClick(l => { selectedItem.value = { type: 'edge', data: l.rawData } })
+    .onBackgroundClick(() => {
+      selectedId = null
+      neighbors.clear()
+      selectedItem.value = null
+      graph3d.nodeColor(graph3d.nodeColor()).linkColor(graph3d.linkColor())
+    })
+  // Nitidez razonable sin agotar la batería en pantallas de alta densidad
+  try { graph3d.renderer().setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)) } catch (e) {}
+  // Encuadre al terminar de acomodarse (una sola vez)
+  let fittedOnce = false
+  graph3d.onEngineStop(() => { if (!fittedOnce) { fittedOnce = true; graph3d.zoomToFit(600, 30) } })
+}
+
+watch(graphMode, (mode) => {
+  try { localStorage.setItem('mf:graphMode', mode) } catch (e) {}
+  selectedItem.value = null
+  nextTick(renderGraph)
+})
+
 watch(() => props.graphData, () => {
   nextTick(renderGraph)
 }, { deep: true })
@@ -795,9 +948,14 @@ watch(showEdgeLabels, (newVal) => {
   if (linkLabelBgRef) {
     linkLabelBgRef.style('display', newVal ? 'block' : 'none')
   }
+  if (newVal && placeLinkLabelsRef) placeLinkLabelsRef()
 })
 
 const handleResize = () => {
+  if (graphMode.value === '3d' && graph3d && graph3dEl.value) {
+    graph3d.width(graph3dEl.value.clientWidth).height(graph3dEl.value.clientHeight)
+    return
+  }
   nextTick(renderGraph)
 }
 
@@ -810,10 +968,17 @@ onUnmounted(() => {
   if (currentSimulation) {
     currentSimulation.stop()
   }
+  dispose3D()
 })
 </script>
 
 <style scoped>
+/* Vista 3D y selector 2D/3D (parche MX) */
+.graph-3d { position: absolute; inset: 0; }
+.mode-switch { display: inline-flex; border: 1px solid #E0E0E0; border-radius: 6px; overflow: hidden; background: #FFF; }
+.mode-btn { border: 0; background: transparent; padding: 5px 10px; font: 600 12px 'JetBrains Mono', monospace; color: #6B7280; cursor: pointer; }
+.mode-btn.active { background: #0f172a; color: #FFF; }
+.mode-btn:focus-visible { outline: 2px solid #E91E63; outline-offset: -2px; }
 .graph-panel {
   position: relative;
   width: 100%;
@@ -912,6 +1077,7 @@ onUnmounted(() => {
 }
 
 /* Entity Types Legend - Bottom Left */
+.graph-legend.is-collapsed .legend-title { margin-bottom: 0; }
 .graph-legend {
   position: absolute;
   bottom: 24px;
@@ -925,6 +1091,13 @@ onUnmounted(() => {
 }
 
 .legend-title {
+  /* botón que pliega la leyenda (parche MX) */
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
   display: block;
   font-size: 11px;
   font-weight: 600;
